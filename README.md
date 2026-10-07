@@ -175,7 +175,81 @@ Resposta temporaria atual de /stream/authorize:
 }
 ```
 
-## 16. Roadmap resumido das proximas fases
+## 16. Mock provider para validacao externa
+
+O mock provider foi criado como dependencia externa controlada para simular um provedor de validacao sem integrar a API principal. Ele permite validar o comportamento da camada externa isoladamente, com cenarios de sucesso, lentidao e falha.
+
+Este provider ainda nao esta integrado a API principal em `app/main.py` e nao altera o endpoint `/stream/authorize`.
+
+### Contrato do endpoint
+
+- GET /validate
+- Parametros obrigatorios:
+  - user_id: string, minimo 1 e maximo 100 caracteres
+  - movie_id: string, minimo 1 e maximo 100 caracteres
+- Parametro opcional:
+  - mode: success | slow | error
+  - valor padrao: success
+
+### Modos disponiveis
+
+#### success
+Retorna HTTP 200 com JSON:
+
+```json
+{
+  "user_id": "usr_99823",
+  "movie_id": "mov_dune_part2",
+  "subscription_active": true,
+  "bandwidth_mbps": 120,
+  "server_load_percent": 35,
+  "server_region": "sa-east-1"
+}
+```
+
+#### slow
+- rota async
+- espera 3 segundos com `await asyncio.sleep(3)`
+- retorna HTTP 200 com o mesmo payload do modo success
+
+#### error
+- retorna HTTP 503
+- usa `HTTPException`
+- detail exatamente:
+
+```text
+External validation service unavailable
+```
+
+### Como executar na porta 8001
+
+```bash
+uvicorn mock_provider.main:app --reload --port 8001
+```
+
+### Exemplos curl
+
+#### sucesso
+```bash
+curl -i "http://127.0.0.1:8001/validate?user_id=usr_99823&movie_id=mov_dune_part2"
+```
+
+#### modo lento
+```bash
+curl -i "http://127.0.0.1:8001/validate?user_id=usr_99823&movie_id=mov_dune_part2&mode=slow"
+```
+
+#### falha externa
+```bash
+curl -i "http://127.0.0.1:8001/validate?user_id=usr_99823&movie_id=mov_dune_part2&mode=error"
+```
+
+#### modo invalido
+```bash
+curl -i "http://127.0.0.1:8001/validate?user_id=usr_99823&movie_id=mov_dune_part2&mode=invalid"
+```
+
+## 17. Roadmap resumido das proximas fases
 1. Integracao externa simulada para autorizacao
 2. Tratamento de falhas da dependencia externa (sem crash da API)
 3. Containerizacao com Docker e orquestracao com Docker Compose
