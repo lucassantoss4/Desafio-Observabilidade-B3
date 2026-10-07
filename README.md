@@ -175,86 +175,111 @@ Resposta temporaria atual de /stream/authorize:
 }
 ```
 
-## 16. Mock provider para validacao externa
+## 16. Integracao do provider de validacao externa
 
-O mock provider foi criado como dependencia externa controlada para simular um provedor de validacao sem integrar a API principal. Ele permite validar o comportamento da camada externa isoladamente, com cenarios de sucesso, lentidao e falha.
+A API principal agora consulta o mock provider antes de decidir a resposta final de `/stream/authorize`. O cliente HTTP acessa a dependencia externa em modo configurado para obter e validar fatores simulados como assinatura, banda e carga do servidor.
 
-Este provider ainda nao esta integrado a API principal em `app/main.py` e nao altera o endpoint `/stream/authorize`.
+A regra de negocio continua sendo aplicada pela API principal, que decide `authorized` e `resolution` com base no retorno do provider. O mock provider continua isolado e a aplicacao converte falhas especificas do cliente HTTP em erro 503 para manter a API principal ativa.
 
-### Contrato do endpoint
+### Variaveis de ambiente
 
-- GET /validate
-- Parametros obrigatorios:
-  - user_id: string, minimo 1 e maximo 100 caracteres
-  - movie_id: string, minimo 1 e maximo 100 caracteres
-- Parametro opcional:
-  - mode: success | slow | error
-  - valor padrao: success
+```bash
+export MOCK_PROVIDER_URL=http://127.0.0.1:8001
+export MOCK_PROVIDER_MODE=success
+export PROVIDER_TIMEOUT_SECONDS=1.0
+```
 
-### Modos disponiveis
+- `MOCK_PROVIDER_MODE`: define o comportamento simulado da dependencia externa. Os modos suportados nesta demonstracao sao `success`, `slow` e `error`.
+- `MOCK_PROVIDER_MODE` tem valor padrao `success`.
+- `PROVIDER_TIMEOUT_SECONDS`: define o tempo maximo de espera da dependencia externa. O valor padrao recomendado e `1.0` segundo.
+- `MOCK_PROVIDER_URL`: endereco do mock provider; se nao definido, o cliente usa `http://127.0.0.1:8001`.
 
-#### success
-Retorna HTTP 200 com JSON:
+### Comportamento de falhas externas
+
+A aplicacao captura somente excecoes especificas do `httpx` para converter indisponibilidade temporaria em resposta HTTP 503 e JSON controlado:
 
 ```json
 {
-  "user_id": "usr_99823",
-  "movie_id": "mov_dune_part2",
-  "subscription_active": true,
-  "bandwidth_mbps": 120,
-  "server_load_percent": 35,
-  "server_region": "sa-east-1"
+  "detail": "External validation service unavailable"
 }
 ```
 
-#### slow
-- rota async
-- espera 3 segundos com `await asyncio.sleep(3)`
-- retorna HTTP 200 com o mesmo payload do modo success
+Esse comportamento foi mantido simples e deliberado: nao ha retry, fallback nem circuit breaker nesta etapa. O objetivo e preservar a API principal funcionando mesmo quando a dependencia externa falha ou responde com erro de rede ou de status.
 
-#### error
-- retorna HTTP 503
-- usa `HTTPException`
-- detail exatamente:
+### Como executar os servicos para teste manual
 
-```text
-External validation service unavailable
+Terminal 1 - API principal:
+
+```bash
+uvicorn app.main:app --reload --port 8000
 ```
 
-### Como executar na porta 8001
+Terminal 2 - Mock provider:
 
 ```bash
 uvicorn mock_provider.main:app --reload --port 8001
 ```
 
-### Exemplos curl
+Opcionalmente, para testar cenarios de lentidao ou falha de dependencia:
 
-#### sucesso
 ```bash
-curl -i "http://127.0.0.1:8001/validate?user_id=usr_99823&movie_id=mov_dune_part2"
+export MOCK_PROVIDER_MODE=slow
+export MOCK_PROVIDER_MODE=error
 ```
 
-#### modo lento
+### Exemplo de consulta manual
+
 ```bash
-curl -i "http://127.0.0.1:8001/validate?user_id=usr_99823&movie_id=mov_dune_part2&mode=slow"
+curl -i "http://127.0.0.1:8000/stream/authorize?user_id=usr_99823&movie_id=mov_dune_part2"
 ```
 
-#### falha externa
+### Comandos de demonstracao manual
+
+Sucesso:
+
 ```bash
-curl -i "http://127.0.0.1:8001/validate?user_id=usr_99823&movie_id=mov_dune_part2&mode=error"
+export MOCK_PROVIDER_MODE=success
+curl -i "http://127.0.0.1:8000/stream/authorize?user_id=usr_99823&movie_id=mov_dune_part2"
 ```
 
-#### modo invalido
+Atraso:
+
 ```bash
-curl -i "http://127.0.0.1:8001/validate?user_id=usr_99823&movie_id=mov_dune_part2&mode=invalid"
+export MOCK_PROVIDER_MODE=slow
+curl -i "http://127.0.0.1:8000/stream/authorize?user_id=usr_99823&movie_id=mov_dune_part2"
 ```
+
+Erro externo:
+
+```bash
+export MOCK_PROVIDER_MODE=error
+curl -i "http://127.0.0.1:8000/stream/authorize?user_id=usr_99823&movie_id=mov_dune_part2"
+```
+
+Em todos os cenarios de falha externa, a resposta publica e a esperada:
+
+```json
+{
+  "detail": "External validation service unavailable"
+}
+```
+
+### Testes automatizados
+
+```bash
+python -m pytest -v
+```
+
+Resultado esperado nesta etapa:
+
+- 36 testes coletados
+- 36 aprovados
 
 ## 17. Roadmap resumido das proximas fases
-1. Integracao externa simulada para autorizacao
-2. Tratamento de falhas da dependencia externa (sem crash da API)
-3. Containerizacao com Docker e orquestracao com Docker Compose
-4. Instrumentacao com OpenTelemetry (traces, logs correlacionados, metricas)
-5. Exposicao de metricas RED em /metrics
-6. Stack LGTM (Prometheus, Loki, Tempo, Grafana)
-7. Dashboard Grafana exportado em JSON
-8. Teste de carga com k6
+1. Tratamento de falhas da dependencia externa (timeout, retry, fallback e 503)
+2. Containerizacao com Docker e orquestracao com Docker Compose
+3. Instrumentacao com OpenTelemetry (traces, logs correlacionados, metricas)
+4. Exposicao de metricas RED em /metrics
+5. Stack LGTM (Prometheus, Loki, Tempo, Grafana)
+6. Dashboard Grafana exportado em JSON
+7. Teste de carga com k6
