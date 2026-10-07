@@ -1,6 +1,7 @@
 """Rotas da API principal para saúde e autorização de streaming."""
 
-from fastapi import APIRouter, Query
+import httpx
+from fastapi import APIRouter, HTTPException, Query
 
 from app.models.streaming import StreamingAuthorizationResponse
 from app.services.provider_client import ProviderClient
@@ -24,7 +25,17 @@ async def authorize_streaming(
 ) -> StreamingAuthorizationResponse:
     """Consulta o provider e aplica a regra de negócio do contrato atual."""
 
-    provider_response = await provider_client.validate(user_id, movie_id)
+    try:
+        provider_response = await provider_client.validate(user_id, movie_id)
+    except (httpx.TimeoutException, httpx.RequestError, httpx.HTTPStatusError) as exc:
+        # Somente exceções específicas do cliente HTTP são convertidas em 503,
+        # porque essas falhas representam indisponibilidade da dependência externa.
+        # Não usamos except Exception para não mascarar erros que devem ser
+        # observados e tratados de forma explícita.
+        raise HTTPException(
+            status_code=503,
+            detail="External validation service unavailable",
+        ) from exc
 
     authorized = provider_response.subscription_active
     if not authorized:

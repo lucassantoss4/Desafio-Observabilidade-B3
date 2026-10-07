@@ -177,21 +177,34 @@ Resposta temporaria atual de /stream/authorize:
 
 ## 16. Integracao do provider de validacao externa
 
-A API principal agora consulta o mock provider antes de decidir a resposta final de `/stream/authorize`. O cliente HTTP acessa a dependencia externa em modo `success` para obter e validar fatores simulados como assinatura, banda e carga do servidor.
+A API principal agora consulta o mock provider antes de decidir a resposta final de `/stream/authorize`. O cliente HTTP acessa a dependencia externa em modo configurado para obter e validar fatores simulados como assinatura, banda e carga do servidor.
 
-A regra de negocio continua sendo aplicada pela API principal, que decide `authorized` e `resolution` com base no retorno do provider. O mock provider continua isolado e ainda nao implementa tratamento de falhas externas em modo de erro para esta etapa.
+A regra de negocio continua sendo aplicada pela API principal, que decide `authorized` e `resolution` com base no retorno do provider. O mock provider continua isolado e a aplicacao converte falhas especificas do cliente HTTP em erro 503 para manter a API principal ativa.
 
-### Variavel de ambiente
+### Variaveis de ambiente
 
 ```bash
 export MOCK_PROVIDER_URL=http://127.0.0.1:8001
+export MOCK_PROVIDER_MODE=success
+export PROVIDER_TIMEOUT_SECONDS=1.0
 ```
 
-Se a variavel nao for definida, o cliente usa o valor padrao local:
+- `MOCK_PROVIDER_MODE`: define o comportamento simulado da dependencia externa. Os modos suportados nesta demonstracao sao `success`, `slow` e `error`.
+- `MOCK_PROVIDER_MODE` tem valor padrao `success`.
+- `PROVIDER_TIMEOUT_SECONDS`: define o tempo maximo de espera da dependencia externa. O valor padrao recomendado e `1.0` segundo.
+- `MOCK_PROVIDER_URL`: endereco do mock provider; se nao definido, o cliente usa `http://127.0.0.1:8001`.
 
-```text
-http://127.0.0.1:8001
+### Comportamento de falhas externas
+
+A aplicacao captura somente excecoes especificas do `httpx` para converter indisponibilidade temporaria em resposta HTTP 503 e JSON controlado:
+
+```json
+{
+  "detail": "External validation service unavailable"
+}
 ```
+
+Esse comportamento foi mantido simples e deliberado: nao ha retry, fallback nem circuit breaker nesta etapa. O objetivo e preservar a API principal funcionando mesmo quando a dependencia externa falha ou responde com erro de rede ou de status.
 
 ### Como executar os servicos para teste manual
 
@@ -207,15 +220,60 @@ Terminal 2 - Mock provider:
 uvicorn mock_provider.main:app --reload --port 8001
 ```
 
+Opcionalmente, para testar cenarios de lentidao ou falha de dependencia:
+
+```bash
+export MOCK_PROVIDER_MODE=slow
+export MOCK_PROVIDER_MODE=error
+```
+
 ### Exemplo de consulta manual
 
 ```bash
 curl -i "http://127.0.0.1:8000/stream/authorize?user_id=usr_99823&movie_id=mov_dune_part2"
 ```
 
-### Tratamento de falhas externos
+### Comandos de demonstracao manual
 
-O tratamento completo de falhas, retries e cenarios 503 sera implementado na proxima etapa. Nesta fase, o caminho de sucesso e o unico integrado.
+Sucesso:
+
+```bash
+export MOCK_PROVIDER_MODE=success
+curl -i "http://127.0.0.1:8000/stream/authorize?user_id=usr_99823&movie_id=mov_dune_part2"
+```
+
+Atraso:
+
+```bash
+export MOCK_PROVIDER_MODE=slow
+curl -i "http://127.0.0.1:8000/stream/authorize?user_id=usr_99823&movie_id=mov_dune_part2"
+```
+
+Erro externo:
+
+```bash
+export MOCK_PROVIDER_MODE=error
+curl -i "http://127.0.0.1:8000/stream/authorize?user_id=usr_99823&movie_id=mov_dune_part2"
+```
+
+Em todos os cenarios de falha externa, a resposta publica e a esperada:
+
+```json
+{
+  "detail": "External validation service unavailable"
+}
+```
+
+### Testes automatizados
+
+```bash
+python -m pytest -v
+```
+
+Resultado esperado nesta etapa:
+
+- 36 testes coletados
+- 36 aprovados
 
 ## 17. Roadmap resumido das proximas fases
 1. Tratamento de falhas da dependencia externa (timeout, retry, fallback e 503)

@@ -14,15 +14,29 @@ class ProviderClient:
     fatores simulados que a API principal usa para decidir a resposta final.
     """
 
-    def __init__(self, base_url: str | None = None, timeout: float = 5.0) -> None:
-        # MOCK_PROVIDER_URL permite alternar entre localhost no ambiente local e
-        # o nome do serviço em uma futura rede do Docker Compose sem mudar a
-        # lógica da aplicação.
+    def __init__(
+        self,
+        base_url: str | None = None,
+        timeout: float | None = None,
+        mode: str | None = None,
+    ) -> None:
+        # MOCK_PROVIDER_URL permite alternar entre localhost local e a origem do
+        # serviço em uma futura execução em container, sem alterar a regra de
+        # negócio da API principal.
         self.base_url = base_url or os.getenv("MOCK_PROVIDER_URL", "http://127.0.0.1:8001")
-        self.timeout = timeout
+
+        # PROVIDER_TIMEOUT_SECONDS limita o tempo de espera pela dependência
+        # externa sem bloquear a aplicação indefinidamente; o valor padrão é
+        # curto para manter a demonstração previsível.
+        configured_timeout = os.getenv("PROVIDER_TIMEOUT_SECONDS")
+        self.timeout = float(configured_timeout) if configured_timeout is not None else (timeout if timeout is not None else 1.0)
+
+        # MOCK_PROVIDER_MODE existe somente para simular os cenários de sucesso,
+        # atraso e falha da dependência externa durante a demonstração.
+        self.mode = mode or os.getenv("MOCK_PROVIDER_MODE", "success")
 
     async def validate(self, user_id: str, movie_id: str) -> ProviderValidationResponse:
-        """Consulta o provider em modo success e converte a resposta em modelo."""
+        """Consulta o provider usando o modo configurado e converte a resposta em modelo."""
 
         # httpx.AsyncClient evita bloquear o processamento enquanto a aplicação
         # aguarda a dependência externa responder.
@@ -32,11 +46,8 @@ class ProviderClient:
                 params={
                     "user_id": user_id,
                     "movie_id": movie_id,
-                    "mode": "success",
+                    "mode": self.mode,
                 },
             )
             response.raise_for_status()
             return ProviderValidationResponse(**response.json())
-
-        # O tratamento completo de timeout e falhas HTTP será feito na próxima
-        # etapa. Nesta integração, o objetivo é validar somente o caminho de sucesso.

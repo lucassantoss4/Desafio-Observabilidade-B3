@@ -1,5 +1,6 @@
 """Testes de contrato da API principal com o provider simulado."""
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -26,6 +27,17 @@ def mock_provider_success(monkeypatch):
             server_load_percent=35,
             server_region="sa-east-1",
         )
+
+    monkeypatch.setattr("app.routes.streaming.provider_client.validate", fake_validate)
+
+
+def _raise_provider_exception(monkeypatch, exc: Exception) -> None:
+    """Simula uma falha específica da dependência externa sem tocar a porta 8001."""
+
+    # Os testes documentam o comportamento da API quando a dependência externa
+    # falha, sem iniciar um servidor real para a demonstração.
+    async def fake_validate(_user_id: str, _movie_id: str):
+        raise exc
 
     monkeypatch.setattr("app.routes.streaming.provider_client.validate", fake_validate)
 
@@ -97,6 +109,66 @@ def test_stream_authorize_server_region_is_sa_east_1(mock_provider_success) -> N
     )
     assert response.status_code == 200
     assert response.json()["server_region"] == "sa-east-1"
+
+
+def test_provider_timeout_returns_503(monkeypatch) -> None:
+    _raise_provider_exception(monkeypatch, httpx.TimeoutException("provider timed out"))
+
+    response = client.get(
+        "/stream/authorize",
+        params={"user_id": "usr_99823", "movie_id": "mov_dune_part2"},
+    )
+
+    assert response.status_code == 503
+
+
+def test_provider_connect_error_returns_503(monkeypatch) -> None:
+    _raise_provider_exception(monkeypatch, httpx.ConnectError("connection refused"))
+
+    response = client.get(
+        "/stream/authorize",
+        params={"user_id": "usr_99823", "movie_id": "mov_dune_part2"},
+    )
+
+    assert response.status_code == 503
+
+
+def test_provider_http_status_error_returns_503(monkeypatch) -> None:
+    request = httpx.Request("GET", "http://127.0.0.1:8001/validate")
+    response = httpx.Response(503, request=request)
+    exc = httpx.HTTPStatusError("provider unavailable", request=request, response=response)
+    _raise_provider_exception(monkeypatch, exc)
+
+    response = client.get(
+        "/stream/authorize",
+        params={"user_id": "usr_99823", "movie_id": "mov_dune_part2"},
+    )
+
+    assert response.status_code == 503
+
+
+def test_provider_failure_returns_expected_detail(monkeypatch) -> None:
+    _raise_provider_exception(monkeypatch, httpx.ConnectError("connection refused"))
+
+    response = client.get(
+        "/stream/authorize",
+        params={"user_id": "usr_99823", "movie_id": "mov_dune_part2"},
+    )
+
+    assert response.json() == {"detail": "External validation service unavailable"}
+
+
+def test_health_returns_200_after_provider_failure(monkeypatch) -> None:
+    _raise_provider_exception(monkeypatch, httpx.TimeoutException("provider timed out"))
+
+    failed_response = client.get(
+        "/stream/authorize",
+        params={"user_id": "usr_99823", "movie_id": "mov_dune_part2"},
+    )
+    health_response = client.get("/health")
+
+    assert failed_response.status_code == 503
+    assert health_response.status_code == 200
 
 
 def test_stream_authorize_without_user_id_returns_422() -> None:
