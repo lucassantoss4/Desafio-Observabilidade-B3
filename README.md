@@ -42,6 +42,47 @@ Ainda nao implementado:
 - Uvicorn
 - Pydantic
 
+## Logs estruturados em JSON
+A infraestrutura utiliza a biblioteca padrao `logging` do Python. Cada evento gerado pela aplicacao inclui obrigatoriamente:
+
+- `timestamp` em UTC no formato ISO 8601;
+- `level`;
+- `service`;
+- `event`;
+- `message`.
+
+Campos adicionais preservam seus tipos JSON, incluindo boolean, inteiro, float, null e string. Campos sensiveis conhecidos sao substituidos por `[REDACTED]`.
+
+Campos atualmente protegidos:
+
+- `authorization`;
+- `cookie`;
+- `password`;
+- `secret`;
+- `access_token`;
+- `refresh_token`;
+- `drm_token`;
+- `api_key`.
+
+A comparacao dos nomes nao diferencia maiusculas e minusculas. Dicionarios aninhados tambem sao sanitizados. Headers, cookies, variaveis de ambiente e objetos completos de request nao sao coletados automaticamente.
+
+Mensagens de excecao sao preservadas para diagnostico e, por isso, nao devem conter credenciais, tokens ou secrets. Esta etapa criou somente a infraestrutura centralizada. As rotas e os servicos ainda nao produzem esses eventos estruturados. O `request_id` sera adicionado posteriormente. O `trace_id` e o `span_id` serao adicionados somente quando existir contexto real do OpenTelemetry. Loki e OpenTelemetry ainda nao estao integrados.
+
+Exemplo:
+
+```json
+{
+  "timestamp": "2026-10-08T19:27:45.393Z",
+  "level": "INFO",
+  "service": "stream-authorization-api",
+  "event": "stream_authorization_completed",
+  "message": "Autorização concluída",
+  "authorized": true,
+  "resolution": "4K",
+  "latency_ms": 12.5
+}
+```
+
 ## 6. Estrutura de diretorios atual
 ```text
 .
