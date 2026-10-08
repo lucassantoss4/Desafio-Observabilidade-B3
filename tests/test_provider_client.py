@@ -1,6 +1,7 @@
 """Testes da fronteira HTTP do mock provider sem depender de um servidor real."""
 
 import asyncio
+import logging
 from unittest.mock import patch
 
 from app.models.provider import ProviderValidationResponse
@@ -83,3 +84,38 @@ def test_provider_client_uses_success_mode_and_expected_query_params() -> None:
             },
         }
     ]
+
+
+def test_provider_client_logs_structured_events_without_sensitive_fields(caplog) -> None:
+    """Valida que o cliente regista apenas o ciclo HTTP e não expõe segredos."""
+
+    payload = {
+        "user_id": "usr_99823",
+        "movie_id": "mov_dune_part2",
+        "subscription_active": True,
+        "bandwidth_mbps": 120,
+        "server_load_percent": 35,
+        "server_region": "sa-east-1",
+    }
+    caplog.set_level(logging.INFO, logger="stream-authorization-api")
+
+    async def fake_get(self, url, params):
+        return FakeResponse(payload)
+
+    with patch("httpx.AsyncClient.get", new=fake_get):
+        client = ProviderClient(base_url="http://127.0.0.1:8001")
+        asyncio.run(client.validate("usr_99823", "mov_dune_part2"))
+
+    event_names = {getattr(record, "event", None) for record in caplog.records}
+    assert "provider_request_started" in event_names
+    assert "provider_request_completed" in event_names
+
+    completed = next(record for record in caplog.records if getattr(record, "event", None) == "provider_request_completed")
+    assert completed.provider_mode == "success"
+    assert completed.provider_status_code == 200
+    assert completed.server_region == "sa-east-1"
+    assert isinstance(completed.latency_ms, float)
+
+    serialized = "\n".join(str(record.getMessage()) for record in caplog.records)
+    for forbidden in ("drm_token", "authorization", "cookie", "trace_id", "span_id"):
+        assert forbidden not in serialized.lower()

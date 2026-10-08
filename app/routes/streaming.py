@@ -1,5 +1,8 @@
 """Rotas da API principal para saúde e autorização de streaming."""
 
+import logging
+import time
+
 import httpx
 from fastapi import APIRouter, HTTPException, Query
 
@@ -7,6 +10,7 @@ from app.models.streaming import StreamingAuthorizationResponse
 from app.services.provider_client import ProviderClient
 
 
+logger = logging.getLogger("stream-authorization-api")
 router = APIRouter()
 provider_client = ProviderClient()
 
@@ -24,10 +28,19 @@ async def authorize_streaming(
     movie_id: str = Query(min_length=1, max_length=100),
 ) -> StreamingAuthorizationResponse:
     """Consulta o provider e aplica a regra de negócio do contrato atual."""
+    started_at = time.perf_counter()
+    logger.info(
+        "stream authorization started",
+        extra={
+            "event": "stream_authorization_started",
+            "user_id": user_id,
+            "movie_id": movie_id,
+        },
+    )
 
     try:
         provider_response = await provider_client.validate(user_id, movie_id)
-    except (httpx.TimeoutException, httpx.RequestError, httpx.HTTPStatusError) as exc:
+    except (httpx.TimeoutException, httpx.ConnectError, httpx.HTTPStatusError) as exc:
         # Somente exceções específicas do cliente HTTP são convertidas em 503,
         # porque essas falhas representam indisponibilidade da dependência externa.
         # Não usamos except Exception para não mascarar erros que devem ser
@@ -40,7 +53,8 @@ async def authorize_streaming(
     authorized = provider_response.subscription_active
     if not authorized:
         # Uma assinatura inativa bloqueia o acesso antes de considerar a rede ou
-        # a carga do servidor.
+        # a carga do servidor; isso não é uma degradação técnica porque o acesso
+        # foi explicitamente negado pela regra de negócio.
         resolution = "none"
     elif provider_response.bandwidth_mbps >= 25 and provider_response.server_load_percent < 80:
         # Boa banda e carga abaixo do limite permitem a qualidade máxima
@@ -51,7 +65,8 @@ async def authorize_streaming(
         # a qualidade cai para um nível funcional e estável.
         resolution = "1080p"
 
-    return StreamingAuthorizationResponse(
+    latency_ms = (time.perf_counter() - started_at) * 1000.0
+    response = StreamingAuthorizationResponse(
         user_id=user_id,
         movie_id=movie_id,
         authorized=authorized,
@@ -59,3 +74,39 @@ async def authorize_streaming(
         drm_token=f"mock-token-{user_id}-{movie_id}",
         server_region=provider_response.server_region,
     )
+
+    logger.info(
+        "stream authorization completed",
+        extra={
+            "event": "stream_authorization_completed",
+            "user_id": user_id,
+            "movie_id": movie_id,
+            "authorized": response.authorized,
+            "resolution": response.resolution,
+            "server_region": response.server_region,
+            "latency_ms": latency_ms,
+        },
+    )
+
+    if authorized and resolution == "1080p":
+        reason_candidates = []
+        if provider_response.bandwidth_mbps < 25:
+            reason_candidates.append("insufficient_bandwidth")
+        if provider_response.server_load_percent >= 80:
+            reason_candidates.append("high_server_load")
+        reason = reason_candidates[0] if len(reason_candidates) == 1 else reason_candidates
+
+        logger.warning(
+            "stream authorization degraded",
+            extra={
+                "event": "stream_authorization_degraded",
+                "user_id": user_id,
+                "movie_id": movie_id,
+                "resolution": resolution,
+                "bandwidth_mbps": provider_response.bandwidth_mbps,
+                "server_load_percent": provider_response.server_load_percent,
+                "reason": reason,
+            },
+        )
+
+    return response

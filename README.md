@@ -43,7 +43,81 @@ Ainda nao implementado:
 - Pydantic
 
 ## Logs estruturados em JSON
-A infraestrutura utiliza a biblioteca padrao `logging` do Python. Cada evento gerado pela aplicacao inclui obrigatoriamente:
+A infraestrutura utiliza a biblioteca padrao `logging` do Python e foi mantida como camada central de serializacao e sanitizacao. A API principal e o cliente do provider agora estao instrumentados, mas o formatter central continua sendo o unico ponto em que a estrutura JSON e a remocao de dados sensiveis sao implementadas.
+
+### Separacao de responsabilidades
+- O `ProviderClient` registra a comunicacao HTTP com a dependencia externa;
+- a rota registra as decisoes de negocio da aplicacao;
+- o formatter central registra a estrutura JSON final e sanitiza campos sensiveis;
+- nao ha middleware, request_id artificial, trace_id, span_id, OpenTelemetry nem Loki nesta fase.
+
+### Eventos da API
+A rota `/stream/authorize` agora produz eventos de negocio para representar o ciclo de autorizacao:
+
+- `stream_authorization_started`
+- `stream_authorization_completed`
+- `stream_authorization_degraded`
+
+Esses eventos incluem campos como:
+
+- `user_id`;
+- `movie_id`;
+- `authorized`;
+- `resolution`;
+- `server_region`;
+- `latency_ms`;
+- `reason` (quando aplicavel).
+
+### Eventos do provider
+O cliente HTTP registra o ciclo de transporte do provider:
+
+- `provider_request_started`
+- `provider_request_completed`
+- `provider_request_failed`
+
+Esses eventos incluem campos como:
+
+- `provider_mode`;
+- `provider_status_code`;
+- `server_region`;
+- `latency_ms`;
+- `error_type`;
+- `reason` (quando aplicavel, em contexto da rota).
+
+### Degradacao de qualidade
+Quando a autorizacao continua valida, mas a resolucao cai para um nivel funcional, o evento `stream_authorization_degraded` e emitido. Os motivos atuais sao:
+
+- `insufficient_bandwidth`;
+- `high_server_load`.
+
+Se ambos os fatores ocorrerem ao mesmo tempo, a representacao continua estavel e estruturada, com a informacao registrada de forma previsivel em `reason` e sem duplicacao de campos arbitrarios.
+
+Assinatura inativa continua sendo tratada como decisao de negocio e nao como degradacao tecnica:
+
+- `authorized` retorna `false`;
+- `resolution` retorna `none`;
+- o evento `stream_authorization_degraded` nao e emitido.
+
+### Medicao de latencia
+A latencia e medida com `time.perf_counter()`, que e usado para calcular `latency_ms` sem depender de `datetime.now()`. A medicao e aplicada em dois niveis:
+
+- no `ProviderClient`, para observar a duracao da chamada externa ao provider;
+- na rota, para observar o tempo total do fluxo de autorizacao da API.
+
+`latency_ms` permanece numerico e representa valores em milissegundos, com ponto flutuante quando necessario.
+
+### Falhas externas esperadas
+Quando a dependencia externa falha por timeout, conexao ou resposta HTTP com erro, a aplicacao registra o evento `provider_request_failed` com os campos:
+
+- `error_type`;
+- `provider_mode`;
+- `latency_ms`;
+- `provider_status_code`, quando aplicavel.
+
+A resposta da API continua preservando HTTP 503 para indisponibilidade temporaria, sem expor stack trace ou detalhes internos do provider em resposta publica.
+
+### Campos e seguranca
+Cada evento JSON inclui obrigatoriamente:
 
 - `timestamp` em UTC no formato ISO 8601;
 - `level`;
@@ -66,22 +140,45 @@ Campos atualmente protegidos:
 
 A comparacao dos nomes nao diferencia maiusculas e minusculas. Dicionarios aninhados tambem sao sanitizados. Headers, cookies, variaveis de ambiente e objetos completos de request nao sao coletados automaticamente.
 
-Mensagens de excecao sao preservadas para diagnostico e, por isso, nao devem conter credenciais, tokens ou secrets. Esta etapa criou somente a infraestrutura centralizada. As rotas e os servicos ainda nao produzem esses eventos estruturados. O `request_id` sera adicionado posteriormente. O `trace_id` e o `span_id` serao adicionados somente quando existir contexto real do OpenTelemetry. Loki e OpenTelemetry ainda nao estao integrados.
+Nao sao registrados:
 
-Exemplo:
+- `drm_token`;
+- `headers`;
+- `authorization`;
+- `cookies`;
+- variaveis de ambiente completas;
+- corpo integral do provider;
+- credenciais.
 
+### Correlacao distribuida e integrações futuras
+Ainda nao existem:
+
+- `request_id` artificial;
+- `trace_id`;
+- `span_id`;
+- OpenTelemetry integrado;
+- Loki integrado.
+
+A ausencia desses campos e intencional: a aplicacao nao cria correlação distribuida artificial, nem integra stacks de observabilidade externas nesta fase.
+
+### Exemplo de sucesso
 ```json
 {
-  "timestamp": "2026-10-08T19:27:45.393Z",
+  "timestamp": "2026-10-08T19:50:51.541Z",
   "level": "INFO",
   "service": "stream-authorization-api",
   "event": "stream_authorization_completed",
-  "message": "Autorização concluída",
+  "message": "stream authorization completed",
+  "user_id": "usr_99823",
+  "movie_id": "mov_dune_part2",
   "authorized": true,
   "resolution": "4K",
-  "latency_ms": 12.5
+  "server_region": "sa-east-1",
+  "latency_ms": 26.19
 }
 ```
+
+Este exemplo representa o fluxo principal de sucesso, com a rota registrando a decisao de negocio e o cliente do provider registrando a comunicacao externa antes da resposta final da API.
 
 ## 6. Estrutura de diretorios atual
 ```text
