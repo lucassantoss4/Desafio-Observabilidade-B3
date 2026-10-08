@@ -1,5 +1,7 @@
 """Testes de contrato da API principal com o provider simulado."""
 
+import logging
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -312,3 +314,169 @@ def test_provider_active_with_high_load_returns_1080p(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json()["resolution"] == "1080p"
+
+
+def test_stream_authorize_success_logs_expected_events(caplog) -> None:
+    caplog.set_level(logging.INFO, logger="stream-authorization-api")
+
+    payload = {
+        "user_id": "usr_99823",
+        "movie_id": "mov_dune_part2",
+        "subscription_active": True,
+        "bandwidth_mbps": 120,
+        "server_load_percent": 35,
+        "server_region": "sa-east-1",
+    }
+
+    async def fake_get(self, url, params):
+        return type("FakeResponse", (), {"status_code": 200, "json": lambda self: payload, "raise_for_status": lambda self: None})()
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("httpx.AsyncClient.get", fake_get)
+        response = client.get(
+            "/stream/authorize",
+            params={"user_id": "usr_99823", "movie_id": "mov_dune_part2"},
+        )
+
+    assert response.status_code == 200
+    event_names = {getattr(record, "event", None) for record in caplog.records}
+    assert "stream_authorization_started" in event_names
+    assert "provider_request_started" in event_names
+    assert "provider_request_completed" in event_names
+    assert "stream_authorization_completed" in event_names
+
+    started = next(record for record in caplog.records if getattr(record, "event", None) == "stream_authorization_started")
+    assert started.user_id == "usr_99823"
+    assert started.movie_id == "mov_dune_part2"
+
+    completed = next(record for record in caplog.records if getattr(record, "event", None) == "stream_authorization_completed")
+    assert completed.authorized is True
+    assert completed.resolution == "4K"
+    assert completed.server_region == "sa-east-1"
+    assert isinstance(completed.latency_ms, float)
+
+
+def test_stream_authorize_low_bandwidth_logs_degradation(caplog) -> None:
+    payload = {
+        "user_id": "usr_99823",
+        "movie_id": "mov_dune_part2",
+        "subscription_active": True,
+        "bandwidth_mbps": 10,
+        "server_load_percent": 20,
+        "server_region": "sa-east-1",
+    }
+
+    async def fake_get(self, url, params):
+        return type("FakeResponse", (), {"status_code": 200, "json": lambda self: payload, "raise_for_status": lambda self: None})()
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("httpx.AsyncClient.get", fake_get)
+        caplog.set_level(logging.INFO, logger="stream-authorization-api")
+        response = client.get(
+            "/stream/authorize",
+            params={"user_id": "usr_99823", "movie_id": "mov_dune_part2"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["resolution"] == "1080p"
+    degraded = next(record for record in caplog.records if getattr(record, "event", None) == "stream_authorization_degraded")
+    assert degraded.resolution == "1080p"
+    assert degraded.reason == "insufficient_bandwidth"
+
+
+def test_stream_authorize_high_load_logs_degradation(caplog) -> None:
+    payload = {
+        "user_id": "usr_99823",
+        "movie_id": "mov_dune_part2",
+        "subscription_active": True,
+        "bandwidth_mbps": 80,
+        "server_load_percent": 90,
+        "server_region": "sa-east-1",
+    }
+
+    async def fake_get(self, url, params):
+        return type("FakeResponse", (), {"status_code": 200, "json": lambda self: payload, "raise_for_status": lambda self: None})()
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("httpx.AsyncClient.get", fake_get)
+        caplog.set_level(logging.INFO, logger="stream-authorization-api")
+        response = client.get(
+            "/stream/authorize",
+            params={"user_id": "usr_99823", "movie_id": "mov_dune_part2"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["resolution"] == "1080p"
+    degraded = next(record for record in caplog.records if getattr(record, "event", None) == "stream_authorization_degraded")
+    assert degraded.reason == "high_server_load"
+
+
+def test_provider_inactive_subscription_is_not_logged_as_degradation(caplog) -> None:
+    payload = {
+        "user_id": "usr_99823",
+        "movie_id": "mov_dune_part2",
+        "subscription_active": False,
+        "bandwidth_mbps": 80,
+        "server_load_percent": 20,
+        "server_region": "sa-east-1",
+    }
+
+    async def fake_get(self, url, params):
+        return type("FakeResponse", (), {"status_code": 200, "json": lambda self: payload, "raise_for_status": lambda self: None})()
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("httpx.AsyncClient.get", fake_get)
+        caplog.set_level(logging.INFO, logger="stream-authorization-api")
+        response = client.get(
+            "/stream/authorize",
+            params={"user_id": "usr_99823", "movie_id": "mov_dune_part2"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["authorized"] is False
+    assert response.json()["resolution"] == "none"
+    event_names = {getattr(record, "event", None) for record in caplog.records}
+    assert "stream_authorization_degraded" not in event_names
+
+
+def test_provider_timeout_logs_failed_event_and_returns_503(caplog) -> None:
+    async def fake_get(self, url, params):
+        raise httpx.TimeoutException("provider timed out")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("httpx.AsyncClient.get", fake_get)
+        caplog.set_level(logging.INFO, logger="stream-authorization-api")
+        response = client.get(
+            "/stream/authorize",
+            params={"user_id": "usr_99823", "movie_id": "mov_dune_part2"},
+        )
+
+    assert response.status_code == 503
+    assert any(getattr(record, "event", None) == "provider_request_failed" for record in caplog.records)
+    failed = next(record for record in caplog.records if getattr(record, "event", None) == "provider_request_failed")
+    assert failed.error_type == "timeout"
+    assert isinstance(failed.latency_ms, float)
+
+
+def test_provider_status_error_logs_status_code_and_is_secret_safe(caplog) -> None:
+    request = httpx.Request("GET", "http://127.0.0.1:8001/validate")
+    response = httpx.Response(503, request=request)
+
+    async def fake_get(self, url, params):
+        raise httpx.HTTPStatusError("provider unavailable", request=request, response=response)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("httpx.AsyncClient.get", fake_get)
+        caplog.set_level(logging.INFO, logger="stream-authorization-api")
+        response = client.get(
+            "/stream/authorize",
+            params={"user_id": "usr_99823", "movie_id": "mov_dune_part2"},
+        )
+
+    assert response.status_code == 503
+    failed = next(record for record in caplog.records if getattr(record, "event", None) == "provider_request_failed")
+    assert failed.provider_status_code == 503
+    assert failed.error_type == "http_status_error"
+    serialized = "\n".join(str(record.getMessage()) for record in caplog.records)
+    for bad_token in ("drm_token", "password", "secret", "api_key", "cookie", "trace_id", "span_id"):
+        assert bad_token not in serialized.lower()
