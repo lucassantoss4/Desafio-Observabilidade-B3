@@ -304,7 +304,49 @@ O mock provider sera executado pelo Compose no proximo incremento.
 Ainda nao existe um arquivo compose.yaml nesta etapa.
 A stack de observabilidade ainda nao foi adicionada.
 
-## 18. Roadmap resumido das proximas fases
+## 18. Orquestracao basica com Docker Compose
+
+### Subir os dois servicos
+
+```bash
+docker compose up --build -d
+```
+
+### Verificar os servicos em execucao
+
+```bash
+docker compose ps
+```
+
+### Health check da API principal
+
+```bash
+curl -i http://127.0.0.1:8000/health
+```
+
+### Autorizacao via API principal
+
+```bash
+curl -i \
+  "http://127.0.0.1:8000/stream/authorize?user_id=usr_99823&movie_id=mov_dune_part2"
+```
+
+### Visualizar logs
+
+```bash
+docker compose logs api
+docker compose logs mock-provider
+```
+
+### Encerrar o ambiente
+
+```bash
+docker compose down
+```
+
+A API acessa o provider via `http://mock-provider:8001` dentro da rede interna do Compose. Esse nome do servico e usado em vez de `localhost` porque a API precisa resolver o outro container da mesma pilha, nao o proprio host. Nesta etapa ainda nao ha healthchecks nem observabilidade, e esses itens serao adicionados em fases posteriores.
+
+## 19. Roadmap resumido das proximas fases
 1. Tratamento de falhas da dependencia externa (timeout, retry, fallback e 503)
 2. Containerizacao com Docker e orquestracao com Docker Compose
 3. Instrumentacao com OpenTelemetry (traces, logs correlacionados, metricas)
