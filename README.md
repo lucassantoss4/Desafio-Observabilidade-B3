@@ -344,7 +344,13 @@ docker compose logs mock-provider
 docker compose down
 ```
 
-A API acessa o provider via `http://mock-provider:8001` dentro da rede interna do Compose. Esse nome do servico e usado em vez de `localhost` porque a API precisa resolver o outro container da mesma pilha, nao o proprio host. Nesta etapa ainda nao ha healthchecks nem observabilidade, e esses itens serao adicionados em fases posteriores.
+### Healthchecks e dependencia da API
+
+Os healthchecks validam a resposta real de cada servico dentro do proprio container usando Python e a biblioteca padrao do stdlib, sem depender de ferramentas do sistema. A API aguarda o mock provider ficar saudável antes de continuar a inicializacao, usando `depends_on` com `condition: service_healthy` para evitar que a aplicacao comece antes da dependencia externa responder corretamente.
+
+Em `docker compose ps`, o estado `healthy` indica que o servico respondeu ao healthcheck com sucesso. Esse estado e diferente de apenas o processo estar em execucao, porque um container pode estar rodando mesmo sem responder corretamente ao endpoint de monitoramento.
+
+A API acessa o provider via `http://mock-provider:8001` dentro da rede interna do Compose. Esse nome do servico e usado em vez de `localhost` porque a API precisa resolver o outro container da mesma pilha, nao o proprio host. O healthcheck do mock provider utiliza parametros validos para a rota `/validate`, e a observabilidade ainda sera adicionada em uma fase posterior.
 
 ## 19. Roadmap resumido das proximas fases
 1. Tratamento de falhas da dependencia externa (timeout, retry, fallback e 503)
