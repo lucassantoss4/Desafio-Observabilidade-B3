@@ -275,7 +275,36 @@ Resultado esperado nesta etapa:
 - 36 testes coletados
 - 36 aprovados
 
-## 17. Roadmap resumido das proximas fases
+## 17. Containerizacao da API principal
+
+Objetivo da imagem: empacotar a API principal em um container reutilizavel, com as mesmas dependencias e versao do Python do projeto, e preparar a base para a orquestracao futura com Docker Compose.
+
+### Build da imagem
+
+```bash
+docker build -t desafio-observabilidade-b3:local .
+```
+
+### Executar a API principal
+
+```bash
+docker run --rm \
+  --name desafio-observabilidade-api-validation \
+  -p 8000:8000 \
+  desafio-observabilidade-b3:local
+```
+
+### Validar o endpoint /health
+
+```bash
+curl -i http://127.0.0.1:8000/health
+```
+
+O mock provider sera executado pelo Compose no proximo incremento.
+Ainda nao existe um arquivo compose.yaml nesta etapa.
+A stack de observabilidade ainda nao foi adicionada.
+
+## 18. Roadmap resumido das proximas fases
 1. Tratamento de falhas da dependencia externa (timeout, retry, fallback e 503)
 2. Containerizacao com Docker e orquestracao com Docker Compose
 3. Instrumentacao com OpenTelemetry (traces, logs correlacionados, metricas)
