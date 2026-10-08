@@ -1,0 +1,29 @@
+# Ambientes virtuais
+.venv/
+venv/
+**/.venv/
+
+# Cache do Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.pyo
+*.pyd
+
+# Git e IDE
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Logs locais, temporários e secrets
+logs/
+*.log
+*.tmp
+*.temp
+*.swp
+*.bak
+.env
+.env.*
+.cache/
+**/.cache/

@@ -275,7 +275,84 @@ Resultado esperado nesta etapa:
 - 36 testes coletados
 - 36 aprovados
 
-## 17. Roadmap resumido das proximas fases
+## 17. Containerizacao da API principal
+
+Objetivo da imagem: empacotar a API principal em um container reutilizavel, com as mesmas dependencias e versao do Python do projeto, e preparar a base para a orquestracao futura com Docker Compose.
+
+### Build da imagem
+
+```bash
+docker build -t desafio-observabilidade-b3:local .
+```
+
+### Executar a API principal
+
+```bash
+docker run --rm \
+  --name desafio-observabilidade-api-validation \
+  -p 8000:8000 \
+  desafio-observabilidade-b3:local
+```
+
+### Validar o endpoint /health
+
+```bash
+curl -i http://127.0.0.1:8000/health
+```
+
+O mock provider sera executado pelo Compose no proximo incremento.
+Ainda nao existe um arquivo compose.yaml nesta etapa.
+A stack de observabilidade ainda nao foi adicionada.
+
+## 18. Orquestracao basica com Docker Compose
+
+### Subir os dois servicos
+
+```bash
+docker compose up --build -d
+```
+
+### Verificar os servicos em execucao
+
+```bash
+docker compose ps
+```
+
+### Health check da API principal
+
+```bash
+curl -i http://127.0.0.1:8000/health
+```
+
+### Autorizacao via API principal
+
+```bash
+curl -i \
+  "http://127.0.0.1:8000/stream/authorize?user_id=usr_99823&movie_id=mov_dune_part2"
+```
+
+### Visualizar logs
+
+```bash
+docker compose logs api
+docker compose logs mock-provider
+```
+
+### Encerrar o ambiente
+
+```bash
+docker compose down
+```
+
+### Healthchecks e dependencia da API
+
+Os healthchecks validam a resposta real de cada servico dentro do proprio container usando Python e a biblioteca padrao do stdlib, sem depender de ferramentas do sistema. A API aguarda o mock provider ficar saudável antes de continuar a inicializacao, usando `depends_on` com `condition: service_healthy` para evitar que a aplicacao comece antes da dependencia externa responder corretamente.
+
+Em `docker compose ps`, o estado `healthy` indica que o servico respondeu ao healthcheck com sucesso. Esse estado e diferente de apenas o processo estar em execucao, porque um container pode estar rodando mesmo sem responder corretamente ao endpoint de monitoramento.
+
+A API acessa o provider via `http://mock-provider:8001` dentro da rede interna do Compose. Esse nome do servico e usado em vez de `localhost` porque a API precisa resolver o outro container da mesma pilha, nao o proprio host. O healthcheck do mock provider utiliza parametros validos para a rota `/validate`, e a observabilidade ainda sera adicionada em uma fase posterior.
+
+## 19. Roadmap resumido das proximas fases
 1. Tratamento de falhas da dependencia externa (timeout, retry, fallback e 503)
 2. Containerizacao com Docker e orquestracao com Docker Compose
 3. Instrumentacao com OpenTelemetry (traces, logs correlacionados, metricas)

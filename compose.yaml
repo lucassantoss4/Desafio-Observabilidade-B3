@@ -1,0 +1,56 @@
+services:
+  api:
+    # Reutilizamos a mesma imagem para manter a base de execução igual entre a API
+    # principal e o provider, reduzindo drift de ambiente e facilitando a evolução
+    # futura para múltiplos serviços com a mesma base.
+    build:
+      context: .
+    image: desafio-observabilidade-b3:local
+    ports:
+      - "8000:8000"
+    environment:
+      MOCK_PROVIDER_URL: http://mock-provider:8001
+      MOCK_PROVIDER_MODE: success
+      PROVIDER_TIMEOUT_SECONDS: "1.0"
+    depends_on:
+      mock-provider:
+        condition: service_healthy
+    # Usamos 127.0.0.1 dentro do próprio container para validar a API localmente
+    # sem depender da porta publicada do host; isso testa o processo real e não o
+    # mapeamento externo.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import sys, urllib.request; r = urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3); sys.exit(0 if r.status == 200 else 1)"
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  mock-provider:
+    # O provider precisa ficar saudável antes da API iniciar as chamadas de negócio,
+    # porque a API depende da rota /validate para autorizar o fluxo do usuário.
+    build:
+      context: .
+    image: desafio-observabilidade-b3:local
+    command: ["uvicorn", "mock_provider.main:app", "--host", "0.0.0.0", "--port", "8001"]
+    # Usamos o nome do serviço do Compose para resolver a dependência interna da API,
+    # evitando localhost, que apontaria para o próprio container e não para o provider.
+    # A checagem válida envia parâmetros reais de healthcheck para /validate, porque
+    # esse endpoint exige user_id, movie_id e mode para responder corretamente.
+    # Não instalamos curl nem wget porque a imagem já traz Python e a biblioteca
+    # padrão do stdlib é suficiente para validar o endpoint com falha explícita.
+    # Healthcheck é diferente de apenas confirmar que o processo subiu; ele mede a
+    # resposta real do serviço em rede e só marca como saudável quando a rota responde.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import sys, urllib.parse, urllib.request; params = urllib.parse.urlencode({'user_id': 'healthcheck', 'movie_id': 'healthcheck', 'mode': 'success'}); url = 'http://127.0.0.1:8001/validate?' + params; r = urllib.request.urlopen(url, timeout=3); sys.exit(0 if r.status == 200 else 1)"
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
