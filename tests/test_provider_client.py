@@ -4,8 +4,8 @@ import asyncio
 import logging
 from unittest.mock import patch
 
-from app.models.provider import ProviderValidationResponse
-from app.services.provider_client import ProviderClient
+from app.schemas import ProviderValidationResponse
+from app.provider import ProviderClient
 
 
 class FakeResponse:

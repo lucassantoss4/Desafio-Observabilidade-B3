@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.models.provider import ProviderValidationResponse
+from app.schemas import ProviderValidationResponse
 
 
 # TestClient executa a aplicação ASGI em memória e permite validar a API sem
@@ -30,7 +30,7 @@ def mock_provider_success(monkeypatch):
             server_region="sa-east-1",
         )
 
-    monkeypatch.setattr("app.routes.streaming.provider_client.validate", fake_validate)
+    monkeypatch.setattr("app.main.provider_client.validate", fake_validate)
 
 
 def _raise_provider_exception(monkeypatch, exc: Exception) -> None:
@@ -41,7 +41,7 @@ def _raise_provider_exception(monkeypatch, exc: Exception) -> None:
     async def fake_validate(_user_id: str, _movie_id: str):
         raise exc
 
-    monkeypatch.setattr("app.routes.streaming.provider_client.validate", fake_validate)
+    monkeypatch.setattr("app.main.provider_client.validate", fake_validate)
 
 
 def test_health_returns_200() -> None:
@@ -234,7 +234,7 @@ def test_provider_success_with_good_bandwidth_returns_4k_resolution(monkeypatch)
             server_region="sa-east-1",
         )
 
-    monkeypatch.setattr("app.routes.streaming.provider_client.validate", fake_validate)
+    monkeypatch.setattr("app.main.provider_client.validate", fake_validate)
 
     response = client.get(
         "/stream/authorize",
@@ -260,7 +260,7 @@ def test_provider_inactive_subscription_returns_none_resolution(monkeypatch) -> 
             server_region="sa-east-1",
         )
 
-    monkeypatch.setattr("app.routes.streaming.provider_client.validate", fake_validate)
+    monkeypatch.setattr("app.main.provider_client.validate", fake_validate)
 
     response = client.get(
         "/stream/authorize",
@@ -283,7 +283,7 @@ def test_provider_active_with_low_bandwidth_returns_1080p(monkeypatch) -> None:
             server_region="sa-east-1",
         )
 
-    monkeypatch.setattr("app.routes.streaming.provider_client.validate", fake_validate)
+    monkeypatch.setattr("app.main.provider_client.validate", fake_validate)
 
     response = client.get(
         "/stream/authorize",
@@ -305,7 +305,7 @@ def test_provider_active_with_high_load_returns_1080p(monkeypatch) -> None:
             server_region="sa-east-1",
         )
 
-    monkeypatch.setattr("app.routes.streaming.provider_client.validate", fake_validate)
+    monkeypatch.setattr("app.main.provider_client.validate", fake_validate)
 
     response = client.get(
         "/stream/authorize",

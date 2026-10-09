@@ -186,17 +186,24 @@ Este exemplo representa o fluxo principal de sucesso, com a rota registrando a d
 ├── app
 │   ├── __init__.py
 │   ├── main.py
-│   ├── models
-│   │   ├── __init__.py
-│   │   └── streaming.py
-│   └── routes
-│       ├── __init__.py
-│       └── streaming.py
+│   ├── schemas.py
+│   ├── provider.py
+│   └── logging.py
+├── mock_provider
+│   ├── __init__.py
+│   └── main.py
 ├── scripts
 │   └── smoke-test.sh
 ├── requirements.txt
 └── README.md
 ```
+
+### Organizacao dos modulos
+- `app/main.py`: cria a aplicacao FastAPI, expoe os endpoints `GET /health` e `GET /stream/authorize`, aplica a regra de autorizacao, converte falhas externas esperadas para HTTP 503 e registra eventos estruturados de negocio.
+- `app/schemas.py`: concentra os contratos Pydantic da API principal e da resposta do provider externo.
+- `app/provider.py`: concentra a comunicacao HTTP com o provider, incluindo timeout, configuracao por variaveis de ambiente e logs de transporte.
+- `app/logging.py`: centraliza formatter JSON, configuracao de logging e sanitizacao recursiva de campos sensiveis com redacao para `[REDACTED]`.
+- `mock_provider/main.py`: implementa o servico externo simulado com modos `success`, `slow` e `error`.
 
 ## 7. Pre-requisitos
 - Linux (ou ambiente shell compativel com bash/sh)
