@@ -15,6 +15,18 @@ from app.schemas import ProviderValidationResponse
 client = TestClient(app)
 
 
+def _read_metric_value(metrics_text: str, metric_name: str, labels: dict[str, str]) -> float:
+    for line in metrics_text.splitlines():
+        if not line.startswith(f"{metric_name}{{"):
+            continue
+        labels_part, _, value_part = line.partition("} ")
+        if not value_part:
+            continue
+        if all(f'{key}="{value}"' in labels_part for key, value in labels.items()):
+            return float(value_part)
+    return 0.0
+
+
 @pytest.fixture
 def mock_provider_success(monkeypatch):
     """Substitui a dependência externa pelo cenário padrão de sucesso."""
@@ -480,3 +492,135 @@ def test_provider_status_error_logs_status_code_and_is_secret_safe(caplog) -> No
     serialized = "\n".join(str(record.getMessage()) for record in caplog.records)
     for bad_token in ("drm_token", "password", "secret", "api_key", "cookie", "trace_id", "span_id"):
         assert bad_token not in serialized.lower()
+
+
+def test_metrics_endpoint_returns_200_and_prometheus_content_type() -> None:
+    response = client.get("/metrics")
+    assert response.status_code == 200
+    assert "text/plain" in response.headers.get("content-type", "")
+
+
+def test_metrics_contains_required_red_metric_names() -> None:
+    response = client.get("/metrics")
+    metrics_text = response.text
+
+    assert any(line.startswith("http_requests_total{") for line in metrics_text.splitlines())
+    assert any(line.startswith("http_request_errors_total{") for line in metrics_text.splitlines())
+    assert any(line.startswith("http_request_duration_seconds_bucket{") for line in metrics_text.splitlines())
+
+
+def test_metrics_counter_increments_for_health_route() -> None:
+    before = client.get("/metrics").text
+    labels = {
+        "method": "GET",
+        "endpoint": "/health",
+        "status_code": "200",
+    }
+    before_value = _read_metric_value(before, "http_requests_total", labels)
+
+    health_response = client.get("/health")
+    assert health_response.status_code == 200
+
+    after = client.get("/metrics").text
+    after_value = _read_metric_value(after, "http_requests_total", labels)
+    assert after_value >= before_value + 1
+
+
+def test_metrics_exposes_normalized_stream_authorize_endpoint(mock_provider_success) -> None:
+    response = client.get(
+        "/stream/authorize",
+        params={"user_id": "usr_99823", "movie_id": "mov_dune_part2"},
+    )
+    assert response.status_code == 200
+
+    metrics_text = client.get("/metrics").text
+    assert 'endpoint="/stream/authorize"' in metrics_text
+
+
+def test_metrics_error_counter_increments_for_provider_503(monkeypatch) -> None:
+    labels = {
+        "method": "GET",
+        "endpoint": "/stream/authorize",
+        "status_code": "503",
+    }
+    before_metrics = client.get("/metrics").text
+    before_value = _read_metric_value(before_metrics, "http_request_errors_total", labels)
+
+    _raise_provider_exception(monkeypatch, httpx.ConnectError("connection refused"))
+    failed = client.get(
+        "/stream/authorize",
+        params={"user_id": "usr_99823", "movie_id": "mov_dune_part2"},
+    )
+    assert failed.status_code == 503
+
+    after_metrics = client.get("/metrics").text
+    after_value = _read_metric_value(after_metrics, "http_request_errors_total", labels)
+    assert after_value >= before_value + 1
+
+
+def test_metrics_does_not_expose_sensitive_or_high_cardinality_data(mock_provider_success) -> None:
+    response = client.get(
+        "/stream/authorize",
+        params={"user_id": "usr_sensitive", "movie_id": "mov_sensitive"},
+    )
+    assert response.status_code == 200
+
+    metrics_text = client.get("/metrics").text
+    for forbidden in (
+        "user_id",
+        "movie_id",
+        "drm_token",
+        "authorization",
+        "?user_id=",
+        "usr_sensitive",
+        "mov_sensitive",
+    ):
+        assert forbidden not in metrics_text.lower()
+
+
+def test_metrics_404_uses_unmatched_endpoint_label() -> None:
+    random_path = "/does-not-exist-usr_12345"
+    before_metrics = client.get("/metrics").text
+    labels = {
+        "method": "GET",
+        "endpoint": "unmatched",
+        "status_code": "404",
+    }
+    before_value = _read_metric_value(before_metrics, "http_requests_total", labels)
+
+    not_found = client.get(random_path)
+    assert not_found.status_code == 404
+
+    after_metrics = client.get("/metrics").text
+    after_value = _read_metric_value(after_metrics, "http_requests_total", labels)
+    assert after_value >= before_value + 1
+    assert 'endpoint="unmatched"' in after_metrics
+    assert random_path not in after_metrics
+
+
+def test_metrics_records_500_for_unexpected_exception(monkeypatch) -> None:
+    async def fake_validate(_user_id: str, _movie_id: str):
+        raise RuntimeError("unexpected failure")
+
+    monkeypatch.setattr("app.main.provider_client.validate", fake_validate)
+
+    labels = {
+        "method": "GET",
+        "endpoint": "/stream/authorize",
+        "status_code": "500",
+    }
+    before_metrics = client.get("/metrics").text
+    before_requests = _read_metric_value(before_metrics, "http_requests_total", labels)
+    before_errors = _read_metric_value(before_metrics, "http_request_errors_total", labels)
+
+    with pytest.raises(RuntimeError):
+        client.get(
+            "/stream/authorize",
+            params={"user_id": "usr_99823", "movie_id": "mov_dune_part2"},
+        )
+
+    after_metrics = client.get("/metrics").text
+    after_requests = _read_metric_value(after_metrics, "http_requests_total", labels)
+    after_errors = _read_metric_value(after_metrics, "http_request_errors_total", labels)
+    assert after_requests >= before_requests + 1
+    assert after_errors >= before_errors + 1
