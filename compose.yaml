@@ -12,8 +12,11 @@ services:
       MOCK_PROVIDER_URL: http://mock-provider:8001
       MOCK_PROVIDER_MODE: success
       PROVIDER_TIMEOUT_SECONDS: "1.0"
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://lgtm:4318/v1/traces
     depends_on:
       mock-provider:
+        condition: service_healthy
+      lgtm:
         condition: service_healthy
     # Usamos 127.0.0.1 dentro do próprio container para validar a API localmente
     # sem depender da porta publicada do host; isso testa o processo real e não o
@@ -35,7 +38,12 @@ services:
     build:
       context: .
     image: desafio-observabilidade-b3:local
+    environment:
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://lgtm:4318/v1/traces
     command: ["uvicorn", "mock_provider.main:app", "--host", "0.0.0.0", "--port", "8001"]
+    depends_on:
+      lgtm:
+        condition: service_healthy
     # Usamos o nome do serviço do Compose para resolver a dependência interna da API,
     # evitando localhost, que apontaria para o próprio container e não para o provider.
     # A checagem válida envia parâmetros reais de healthcheck para /validate, porque
@@ -65,6 +73,14 @@ services:
       api:
         condition: service_healthy
 
+  lgtm:
+    image: grafana/otel-lgtm:0.36.0
+    ports:
+      - "3001:3000"
+      - "4317:4317"
+      - "4318:4318"
+      - "3200:3200"
+
   grafana:
     image: grafana/grafana:13.2.3
     ports:
@@ -79,3 +95,18 @@ services:
     depends_on:
       prometheus:
         condition: service_started
+
+  k6-load-test:
+    image: grafana/k6:2.3.0
+    profiles:
+      - load-test
+    environment:
+      BASE_URL: ${K6_BASE_URL:-http://api:8000}
+      K6_VUS: ${K6_VUS:-50}
+      K6_DURATION: ${K6_DURATION:-5m}
+    volumes:
+      - ./load.js:/load.js:ro
+    command: ["run", "/load.js"]
+    depends_on:
+      api:
+        condition: service_healthy

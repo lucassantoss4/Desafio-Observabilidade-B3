@@ -3,7 +3,10 @@ import json
 import logging
 import os
 
+from opentelemetry import trace
+
 from app.logging import JsonFormatter, configure_json_logging
+from app.logging import configure_tracing
 
 
 def _reset_logger(name: str) -> logging.Logger:
@@ -221,6 +224,19 @@ def test_service_name_is_taken_from_configuration() -> None:
     payload = json.loads(stream.getvalue().strip())
 
     assert payload["service"] == "configured-service"
+
+
+def test_trace_and_span_ids_are_included_when_span_is_active() -> None:
+    logger = _reset_logger("tests.logger.trace")
+    configure_tracing(service="tests-logger")
+    tracer = trace.get_tracer("tests.logger.trace")
+
+    with tracer.start_as_current_span("span-de-teste") as span:
+        payload = _capture_json(logger, message="Mensagem com trace")
+
+    span_context = span.get_span_context()
+    assert payload["trace_id"] == f"{span_context.trace_id:032x}"
+    assert payload["span_id"] == f"{span_context.span_id:016x}"
 
 
 def test_exception_info_is_serialized_for_diagnosis() -> None:

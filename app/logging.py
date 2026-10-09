@@ -1,17 +1,20 @@
-"""Formatter e utilitários para logs estruturados em JSON.
-
-A serialização em JSON facilita ingestão, consulta e paralelismo entre serviços,
-porque cada linha representa um evento autocontido com os campos essenciais.
-Usamos UTC e ISO 8601 para evitar ambiguidades de timezone entre ambientes e
-facilitar correlação entre logs gerados em diferentes hosts.
-"""
+"""Formatter e utilitários para logs JSON e tracing OpenTelemetry."""
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any
+
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 DEFAULT_SERVICE_NAME = "stream-authorization-api"
 DEFAULT_EVENT_NAME = "application_log"
@@ -51,6 +54,9 @@ _RESERVED_LOG_RECORD_FIELDS = {
     "threadName",
     "taskName",
 }
+_TRACE_PROVIDER_CONFIGURED = False
+_HTTPX_INSTRUMENTED = False
+_INSTRUMENTED_APPS: set[int] = set()
 
 
 def _is_sensitive_field(name: Any) -> bool:
@@ -59,7 +65,7 @@ def _is_sensitive_field(name: Any) -> bool:
 
 
 def _sanitize_value(value: Any, *, parent_name: Any | None = None) -> Any:
-    """Redige campos sensíveis e percorre dicionários aninhados para preservar JSON seguro."""
+    """Redige campos sensíveis em valores simples e estruturas aninhadas."""
     if parent_name is not None and _is_sensitive_field(parent_name):
         return REDACTED_VALUE
 
@@ -101,11 +107,15 @@ class JsonFormatter(logging.Formatter):
             "event": getattr(record, "event", self.event) or self.event,
             "message": record.getMessage(),
         }
+        span_context = trace.get_current_span().get_span_context()
+        if span_context.is_valid:
+            payload["trace_id"] = f"{span_context.trace_id:032x}"
+            payload["span_id"] = f"{span_context.span_id:016x}"
 
         for key, value in record.__dict__.items():
             if key in _RESERVED_LOG_RECORD_FIELDS or key.startswith("_"):
                 continue
-            if key in {"timestamp", "level", "service", "event", "message"}:
+            if key in {"timestamp", "level", "service", "event", "message", "trace_id", "span_id"}:
                 continue
             if _is_sensitive_field(key):
                 payload[key] = REDACTED_VALUE
@@ -115,12 +125,33 @@ class JsonFormatter(logging.Formatter):
         if record.exc_info:
             exc_text = self.formatException(record.exc_info)
             if exc_text:
-                # Mensagens de exceção não devem conter secrets; a intenção aqui é
-                # ajudar no diagnóstico sem prometer sanitização automática de texto
-                # arbitrário, que sempre deve ser evitado no código do produto.
+                # Não há sanitização confiável para texto arbitrário de exceção.
                 payload["exception"] = exc_text
 
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def configure_tracing(*, service: str = DEFAULT_SERVICE_NAME, app: Any | None = None) -> None:
+    """Configura tracing mínimo com instrumentação de FastAPI e HTTPX."""
+    global _TRACE_PROVIDER_CONFIGURED, _HTTPX_INSTRUMENTED
+
+    if not _TRACE_PROVIDER_CONFIGURED:
+        provider = TracerProvider(resource=Resource.create({"service.name": service}))
+        traces_endpoint = os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+        if traces_endpoint:
+            provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=traces_endpoint)))
+        trace.set_tracer_provider(provider)
+        _TRACE_PROVIDER_CONFIGURED = True
+
+    provider = trace.get_tracer_provider()
+
+    if not _HTTPX_INSTRUMENTED:
+        HTTPXClientInstrumentor().instrument(tracer_provider=provider)
+        _HTTPX_INSTRUMENTED = True
+
+    if app is not None and id(app) not in _INSTRUMENTED_APPS:
+        FastAPIInstrumentor.instrument_app(app, tracer_provider=provider)
+        _INSTRUMENTED_APPS.add(id(app))
 
 
 def configure_json_logging(
@@ -130,7 +161,7 @@ def configure_json_logging(
     logger_name: str | None = None,
     event: str = DEFAULT_EVENT_NAME,
 ) -> logging.Logger:
-    """Configura um logger em modo JSON sem duplicar handlers em chamadas repetidas."""
+    """Configura logger JSON sem duplicar handlers em chamadas repetidas."""
     target_logger = logging.getLogger(logger_name) if logger_name else logging.getLogger()
     target_logger.setLevel(level)
 
@@ -142,9 +173,5 @@ def configure_json_logging(
     stream_handler.setFormatter(JsonFormatter(service=service, event=event))
     target_logger.addHandler(stream_handler)
 
-    # Não forçamos bibliotecas externas a usar a mesma configuração, apenas o logger
-    # alvo da aplicação. Isso evita a substituição silenciosa de loggers de terceiros
-    # sem necessidade, preservando o comportamento normal de dependências.
-    # trace_id e span_id não são inventados nesta etapa porque exigem contexto real
-    # de OpenTelemetry e não devem ser fabricados sem observabilidade verdadeira.
+    # Mantém configuração restrita ao logger alvo e não inventa IDs de trace/span.
     return target_logger
