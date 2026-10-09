@@ -95,3 +95,18 @@ services:
     depends_on:
       prometheus:
         condition: service_started
+
+  k6-load-test:
+    image: grafana/k6:2.3.0
+    profiles:
+      - load-test
+    environment:
+      BASE_URL: ${K6_BASE_URL:-http://api:8000}
+      K6_VUS: ${K6_VUS:-50}
+      K6_DURATION: ${K6_DURATION:-5m}
+    volumes:
+      - ./load.js:/load.js:ro
+    command: ["run", "/load.js"]
+    depends_on:
+      api:
+        condition: service_healthy

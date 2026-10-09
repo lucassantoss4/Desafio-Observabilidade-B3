@@ -87,6 +87,35 @@ LGTM/OTel:
 - serviço `lgtm` no Compose para receber traces OTLP
 - sem plugins, persistência ou stack customizada nesta etapa
 
+Teste de carga com k6 (stack deve estar ativa antes):
+
+```bash
+docker compose up -d
+```
+
+Execução rápida:
+
+```bash
+K6_VUS=5 K6_DURATION=30s \
+docker compose --profile load-test run --rm k6-load-test
+```
+
+Execução final do desafio:
+
+```bash
+K6_VUS=50 K6_DURATION=5m \
+docker compose --profile load-test run --rm k6-load-test
+```
+
+Thresholds do teste:
+- `http_req_failed`: `rate<0.01`
+- `http_req_duration`: `p(95)<1000`
+- `checks`: `rate>0.99`
+
+Onde observar:
+- Dashboard RED: http://127.0.0.1:3000
+- Traces no LGTM: http://127.0.0.1:3001
+
 Validar saúde e targets do Prometheus:
 
 ```bash
@@ -179,7 +208,7 @@ python -m pytest -q
 ```
 
 Resultado atual comprovado:
-- 63 passed
+- 64 passed
 
 ## 11. Decisões e limitações
 - Mock provider local para cenários determinísticos de integração.
@@ -187,9 +216,8 @@ Resultado atual comprovado:
 - Sem retry.
 - Sem circuit breaker.
 - Sem Loki e Tempo.
-- Sem k6.
 
-O `prometheus-client` expõe métricas no formato Prometheus em `/metrics`, o Prometheus Server faz a coleta básica, o Grafana recebe datasource e dashboard RED provisionados automaticamente, e os traces são exportados via OTLP para o serviço `lgtm`. Nesta etapa não há persistência, alertas, k6 nem dashboards adicionais.
+O `prometheus-client` expõe métricas no formato Prometheus em `/metrics`, o Prometheus Server faz a coleta básica, o Grafana recebe datasource e dashboard RED provisionados automaticamente, e os traces são exportados via OTLP para o serviço `lgtm`. Nesta etapa não há persistência, alertas nem dashboards adicionais.
 
 ## 12. Próximos passos
 - OpenTelemetry.
