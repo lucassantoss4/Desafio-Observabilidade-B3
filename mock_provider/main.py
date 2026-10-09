@@ -14,12 +14,12 @@ class ValidationMode(str, Enum):
 
 
 class MockValidationResponse(BaseModel):
-    user_id: str = Field(..., description="Identificador do usuário solicitado")
-    movie_id: str = Field(..., description="Identificador do filme solicitado")
-    subscription_active: bool = Field(..., description="Status da assinatura do usuário")
-    bandwidth_mbps: int = Field(..., description="Largura de banda simulada em megabits por segundo")
-    server_load_percent: int = Field(..., description="Carga do servidor simulada em porcentagem")
-    server_region: str = Field(..., description="Região do servidor simulada")
+    user_id: str = Field(..., description="Identificador do usuário.")
+    movie_id: str = Field(..., description="Identificador do filme.")
+    subscription_active: bool = Field(..., description="Indica se a assinatura está ativa.")
+    bandwidth_mbps: int = Field(..., description="Largura de banda simulada, em Mbps.")
+    server_load_percent: int = Field(..., description="Carga simulada do servidor, em percentual.")
+    server_region: str = Field(..., description="Região do servidor.")
 
 
 app = FastAPI(title="mock-provider")
@@ -39,8 +39,7 @@ async def validate(
         )
 
     if mode == ValidationMode.slow:
-        # A simulação de latência representa uma dependência externa lenta sem
-        # acelerar ou desacelerar a API principal.
+        # Simula dependência externa lenta.
         await asyncio.sleep(3)
 
     return MockValidationResponse(

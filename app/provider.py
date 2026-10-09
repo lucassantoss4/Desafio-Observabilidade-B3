@@ -13,11 +13,7 @@ logger = logging.getLogger("stream-authorization-api")
 
 
 class ProviderClient:
-    """Responsável somente pela comunicação HTTP com o provider externo.
-
-    A regra de autorização não pertence a este módulo; ele apenas coleta os
-    fatores simulados que a API principal usa para decidir a resposta final.
-    """
+    """Cliente HTTP assíncrono para consultar o provider externo."""
 
     def __init__(
         self,
@@ -25,19 +21,14 @@ class ProviderClient:
         timeout: float | None = None,
         mode: str | None = None,
     ) -> None:
-        # MOCK_PROVIDER_URL permite alternar entre localhost local e a origem do
-        # serviço em uma futura execução em container, sem alterar a regra de
-        # negócio da API principal.
+        # Permite trocar o endpoint do provider por variável de ambiente.
         self.base_url = base_url or os.getenv("MOCK_PROVIDER_URL", "http://127.0.0.1:8001")
 
-        # PROVIDER_TIMEOUT_SECONDS limita o tempo de espera pela dependência
-        # externa sem bloquear a aplicação indefinidamente; o valor padrão é
-        # curto para manter a demonstração previsível.
+        # Evita bloqueio indefinido quando a dependência externa fica lenta.
         configured_timeout = os.getenv("PROVIDER_TIMEOUT_SECONDS")
         self.timeout = float(configured_timeout) if configured_timeout is not None else (timeout if timeout is not None else 1.0)
 
-        # MOCK_PROVIDER_MODE existe somente para simular os cenários de sucesso,
-        # atraso e falha da dependência externa durante a demonstração.
+        # Controla o cenário simulado do provider (success, slow ou error).
         self.mode = mode or os.getenv("MOCK_PROVIDER_MODE", "success")
 
     async def validate(self, user_id: str, movie_id: str) -> ProviderValidationResponse:
@@ -53,8 +44,7 @@ class ProviderClient:
             },
         )
 
-        # O use de perf_counter mede a duração da chamada externa sem depender de
-        # relógios de sistema ou de carregamento de contexto de datetime.
+        # perf_counter mede latência com relógio monotônico.
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.get(

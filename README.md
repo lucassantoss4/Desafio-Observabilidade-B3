@@ -1,18 +1,9 @@
 # Desafio Observabilidade B3 - Stream Authorization API
 
-## 1. Título
-API HTTP para autorização de streaming com FastAPI, integração com provider externo simulado e foco em observabilidade operacional.
+## Visão geral
+API FastAPI para autorização de streaming com integração a um mock provider. O endpoint principal recebe user_id e movie_id, consulta o provider e retorna autorização, resolução e metadados da resposta.
 
-## 2. Visão geral
-Este projeto expõe uma API principal responsável por autorizar streaming com base em dados retornados por um mock provider externo. O fluxo principal recebe `user_id` e `movie_id`, consulta o provider e decide autorização e resolução final (`4K`, `1080p` ou `none`).
-
-O provider simulado suporta modos `success`, `slow` e `error`, permitindo validar cenários de sucesso, lentidão e indisponibilidade. Falhas externas esperadas continuam convertidas para HTTP 503 na API principal, preservando uma resposta pública estável.
-
-A aplicação já publica logs estruturados em JSON com sanitização de dados sensíveis e também expõe métricas RED em `/metrics`. A execução principal em ambiente local de containers ocorre via Docker Compose com healthchecks ativos.
-
-Traces OpenTelemetry também são gerados para a API principal, para o cliente HTTPX e para o mock provider, com propagação entre serviços e `trace_id`/`span_id` reais nos logs JSON.
-
-## 3. Arquitetura
+## Arquitetura
 ```text
 Cliente
   |
@@ -23,71 +14,67 @@ API FastAPI :8000
 Mock Provider :8001
 ```
 
-No Docker Compose, somente a API principal publica porta para o host. O mock provider permanece na rede interna da stack e é consumido pela API via comunicação entre serviços.
+No Docker Compose, a API publica porta no host e consome o mock provider pela rede interna.
 
-## 4. Estrutura do projeto
-```text
-.
-├── app/
-│   ├── __init__.py
-│   ├── logging.py
-│   ├── main.py
-│   ├── provider.py
-│   └── schemas.py
-├── mock_provider/
-│   ├── __init__.py
-│   └── main.py
-├── tests/
-├── scripts/
-├── Dockerfile
-├── compose.yaml
-├── requirements.txt
-└── README.md
-```
-
-## 5. Funcionalidades
-- Autorização de streaming com regras de negócio da API principal.
-- Validações de entrada via query params (`user_id`, `movie_id`).
-- Decisão de resolução em `4K`, `1080p` ou `none`.
-- Timeout e tratamento de falhas do provider externo.
-- Conversão de indisponibilidade externa para HTTP 503.
-- Logs estruturados em JSON.
-- Sanitização de campos sensíveis com `[REDACTED]`.
-- Métricas RED expostas em `/metrics`.
-- Healthchecks dos serviços na stack Docker Compose.
-- Documentação OpenAPI/Swagger em `/docs`.
-
-## 6. Como executar com Docker Compose
-Subir a stack:
+## Execução com Docker Compose
+Subir stack:
 
 ```bash
 docker compose up --build -d
 docker compose ps
 ```
 
-Prometheus (disponível localmente):
+Encerrar:
 
-- http://127.0.0.1:9090
-- coleta métricas da API em `http://api:8000/metrics`
-- sem persistência nesta etapa
+```bash
+docker compose down
+```
 
-Grafana (disponível localmente):
+## Observabilidade
+Prometheus:
+- URL: http://127.0.0.1:9090
+- Coleta métricas da API em http://api:8000/metrics
 
-- http://127.0.0.1:3000
-- credenciais padrão: `admin` / `admin`
-- sobrescrita opcional com `GRAFANA_ADMIN_USER` e `GRAFANA_ADMIN_PASSWORD`
-- datasource Prometheus provisionado automaticamente com `http://prometheus:9090`
-- dashboard provisionado automaticamente: `Stream Authorization - RED`
-- painéis: `Requisições por segundo`, `Erros por segundo`, `Latência p95`, `Requisições por endpoint e status`
-- pode ser necessário gerar tráfego para visualizar dados
-- sem persistência, alertas e dashboards adicionais nesta etapa
+Grafana principal (dashboard RED):
+- URL: http://127.0.0.1:3000
+- Credenciais padrão: admin / admin
+- Dashboard: Stream Authorization - RED
 
-LGTM/OTel:
+LGTM (Grafana + Tempo + Loki no bundle):
+- URL: http://127.0.0.1:3001
+- Traces distribuídos disponíveis no Tempo
+- Loki está disponível no bundle, mas os logs da aplicação seguem em stdout JSON nesta implementação
 
-- serviço `lgtm` no Compose para receber traces OTLP
-- sem plugins, persistência ou stack customizada nesta etapa
+Logs:
+- JSON estruturado
+- Sanitização de campos sensíveis com [REDACTED]
+- trace_id e span_id reais quando há span válido
+- drm_token ausente dos logs
 
-Teste de carga com k6 (stack deve estar ativa antes):
+Métricas RED da API:
+- http_requests_total
+- http_request_errors_total
+- http_request_duration_seconds
+- Labels: method, endpoint, status_code
+- Rotas sem match normalizadas como unmatched
+
+## Endpoints
+- GET /health
+- GET /stream/authorize
+- GET /metrics
+- GET /docs
+- GET /openapi.json
+
+Exemplos:
+
+```bash
+curl -i http://127.0.0.1:8000/health
+curl -i "http://127.0.0.1:8000/stream/authorize?user_id=usr_99823&movie_id=mov_dune_part2"
+curl -i http://127.0.0.1:8000/metrics
+```
+
+## Teste de carga com k6
+A stack deve estar ativa antes do teste:
 
 ```bash
 docker compose up -d
@@ -107,120 +94,38 @@ K6_VUS=50 K6_DURATION=5m \
 docker compose --profile load-test run --rm k6-load-test
 ```
 
-Thresholds do teste:
-- `http_req_failed`: `rate<0.01`
-- `http_req_duration`: `p(95)<1000`
-- `checks`: `rate>0.99`
+Thresholds:
+- http_req_failed: rate<0.01
+- http_req_duration: p(95)<1000
+- checks: rate>0.99
 
-Onde observar:
-- Dashboard RED: http://127.0.0.1:3000
-- Traces no LGTM: http://127.0.0.1:3001
-
-Validar saúde e targets do Prometheus:
-
-```bash
-curl -i http://127.0.0.1:9090/-/healthy
-curl -s http://127.0.0.1:9090/api/v1/targets
-```
-
-Logs da API principal:
-
-```bash
-docker compose logs api
-docker compose logs grafana
-```
-
-Encerrar ambiente:
-
-```bash
-docker compose down
-```
-
-Testes rápidos com curl:
-
-```bash
-curl -i http://127.0.0.1:8000/health
-curl -i "http://127.0.0.1:8000/stream/authorize?user_id=usr_99823&movie_id=mov_dune_part2"
-curl -i http://127.0.0.1:8000/metrics
-```
-
-## 7. Como executar localmente
-Instalação:
-
+## Execução local sem Compose
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
-```
-
-Terminal 1 (mock provider):
-
-```bash
 uvicorn mock_provider.main:app --host 127.0.0.1 --port 8001
-```
-
-Terminal 2 (API principal):
-
-```bash
 uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-## 8. Endpoints e exemplos
-Endpoints atuais:
-- GET `/health`
-- GET `/stream/authorize`
-- GET `/metrics`
-- GET `/docs`
-- GET `/openapi.json`
-
-Exemplos:
-
-```bash
-curl -i http://127.0.0.1:8000/health
-curl -i "http://127.0.0.1:8000/stream/authorize?user_id=usr_99823&movie_id=mov_dune_part2"
-curl -i "http://127.0.0.1:8000/stream/authorize?user_id=usr_99823"
-curl -i http://127.0.0.1:8000/metrics
-curl -i http://127.0.0.1:8000/docs
-curl -i http://127.0.0.1:8000/openapi.json
-```
-
-## 9. Observabilidade
-Logs:
-- JSON estruturado.
-- Eventos de negócio da API e eventos de transporte do provider.
-- `trace_id` e `span_id` reais quando houver span ativo.
-- Campos sensíveis redigidos com `[REDACTED]`.
-- `drm_token` não é registrado nos logs.
-
-Métricas RED:
-- `http_requests_total`
-- `http_request_errors_total`
-- `http_request_duration_seconds`
-- Labels: `method`, `endpoint`, `status_code`.
-- Rotas desconhecidas normalizadas como `unmatched`.
-- Sem `user_id`, `movie_id`, token DRM ou query string nas labels.
-
-## 10. Testes
-Executar:
-
+## Testes
 ```bash
 python -m pytest -q
 ```
 
-Resultado atual comprovado:
+Estado validado:
 - 64 passed
+- 1 warning conhecido do ecossistema Starlette/httpx
 
-## 11. Decisões e limitações
-- Mock provider local para cenários determinísticos de integração.
-- Sem banco de dados.
-- Sem retry.
-- Sem circuit breaker.
-- Sem Loki e Tempo.
+## Limitações atuais
+- Sem persistência de dados
+- Sem alertas configurados
+- Sem pipeline OTLP de logs para Loki
+- Credenciais locais de observabilidade em modo de desenvolvimento
 
-O `prometheus-client` expõe métricas no formato Prometheus em `/metrics`, o Prometheus Server faz a coleta básica, o Grafana recebe datasource e dashboard RED provisionados automaticamente, e os traces são exportados via OTLP para o serviço `lgtm`. Nesta etapa não há persistência, alertas nem dashboards adicionais.
-
-## 12. Próximos passos
-- OpenTelemetry.
-- Stack LGTM.
-- Dashboards Grafana.
-- Teste de carga com k6.
+## Próximos passos
+- Persistência para componentes de observabilidade
+- Alertas operacionais
+- Pipeline OTLP de logs para Loki
+- Ambientes distribuídos (staging/produção)
+- Endurecimento de credenciais locais

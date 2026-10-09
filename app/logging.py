@@ -1,10 +1,4 @@
-"""Formatter e utilitários para logs estruturados em JSON.
-
-A serialização em JSON facilita ingestão, consulta e paralelismo entre serviços,
-porque cada linha representa um evento autocontido com os campos essenciais.
-Usamos UTC e ISO 8601 para evitar ambiguidades de timezone entre ambientes e
-facilitar correlação entre logs gerados em diferentes hosts.
-"""
+"""Formatter e utilitários para logs JSON e tracing OpenTelemetry."""
 
 from __future__ import annotations
 
@@ -71,7 +65,7 @@ def _is_sensitive_field(name: Any) -> bool:
 
 
 def _sanitize_value(value: Any, *, parent_name: Any | None = None) -> Any:
-    """Redige campos sensíveis e percorre dicionários aninhados para preservar JSON seguro."""
+    """Redige campos sensíveis em valores simples e estruturas aninhadas."""
     if parent_name is not None and _is_sensitive_field(parent_name):
         return REDACTED_VALUE
 
@@ -131,9 +125,7 @@ class JsonFormatter(logging.Formatter):
         if record.exc_info:
             exc_text = self.formatException(record.exc_info)
             if exc_text:
-                # Mensagens de exceção não devem conter secrets; a intenção aqui é
-                # ajudar no diagnóstico sem prometer sanitização automática de texto
-                # arbitrário, que sempre deve ser evitado no código do produto.
+                # Não há sanitização confiável para texto arbitrário de exceção.
                 payload["exception"] = exc_text
 
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
@@ -169,7 +161,7 @@ def configure_json_logging(
     logger_name: str | None = None,
     event: str = DEFAULT_EVENT_NAME,
 ) -> logging.Logger:
-    """Configura um logger em modo JSON sem duplicar handlers em chamadas repetidas."""
+    """Configura logger JSON sem duplicar handlers em chamadas repetidas."""
     target_logger = logging.getLogger(logger_name) if logger_name else logging.getLogger()
     target_logger.setLevel(level)
 
@@ -181,9 +173,5 @@ def configure_json_logging(
     stream_handler.setFormatter(JsonFormatter(service=service, event=event))
     target_logger.addHandler(stream_handler)
 
-    # Não forçamos bibliotecas externas a usar a mesma configuração, apenas o logger
-    # alvo da aplicação. Isso evita a substituição silenciosa de loggers de terceiros
-    # sem necessidade, preservando o comportamento normal de dependências.
-    # trace_id e span_id não são inventados nesta etapa porque exigem contexto real
-    # de OpenTelemetry e não devem ser fabricados sem observabilidade verdadeira.
+    # Mantém configuração restrita ao logger alvo e não inventa IDs de trace/span.
     return target_logger
