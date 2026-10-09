@@ -2,7 +2,7 @@ import logging
 
 from fastapi import FastAPI
 
-from app.observability.logging import configure_json_logging
+from app.logging import configure_json_logging
 from app.routes.streaming import router as streaming_router
 
 

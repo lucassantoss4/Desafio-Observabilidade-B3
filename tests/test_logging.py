@@ -3,7 +3,7 @@ import json
 import logging
 import os
 
-from app.observability.logging import JsonFormatter, configure_json_logging
+from app.logging import JsonFormatter, configure_json_logging
 
 
 def _reset_logger(name: str) -> logging.Logger:
