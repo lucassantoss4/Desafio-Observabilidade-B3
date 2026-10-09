@@ -31,10 +31,39 @@ Ainda nao implementado:
 - Resiliencia avancada (retry, circuit breaker etc.)
 - Docker e Docker Compose
 - OpenTelemetry
-- Metricas Prometheus (/metrics)
 - Logs estruturados JSON
 - Loki, Tempo, Grafana, dashboard exportado
 - k6
+
+## Metricas RED (fase atual)
+A API principal expoe metricas RED minimas para acompanhar volume, erros e duracao das requisicoes HTTP sem adicionar alta cardinalidade.
+
+Endpoint de metricas:
+
+- GET /metrics
+
+Metricas publicadas:
+
+- `http_requests_total`
+- `http_request_errors_total`
+- `http_request_duration_seconds`
+
+Labels utilizadas:
+
+- `method`
+- `endpoint`
+- `status_code`
+
+Labels deliberadamente evitadas:
+
+- `user_id`
+- `movie_id`
+- `drm_token`
+- query string completa
+- URL completa
+- credenciais
+
+Nesta etapa, Prometheus e Grafana ainda nao foram adicionados ao Docker Compose.
 
 ## 5. Tecnologias atuais
 - Python 3
@@ -239,6 +268,7 @@ Servidor local padrao:
 ## 11. Endpoints disponiveis
 - GET /health
 - GET /stream/authorize
+- GET /metrics
 
 ### Regras de validacao de /stream/authorize
 - user_id: obrigatorio, nao vazio, maximo 100 caracteres

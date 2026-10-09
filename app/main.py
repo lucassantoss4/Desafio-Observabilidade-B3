@@ -2,8 +2,9 @@ import logging
 import time
 
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi import HTTPException, Query
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
 from app.logging import configure_json_logging
 from app.provider import ProviderClient
@@ -16,10 +17,58 @@ app = FastAPI(title="stream-authorization-api")
 logger = logging.getLogger("stream-authorization-api")
 provider_client = ProviderClient()
 
+http_requests_total = Counter(
+    "http_requests_total",
+    "Total de requisicoes HTTP recebidas.",
+    ["method", "endpoint", "status_code"],
+)
+http_request_errors_total = Counter(
+    "http_request_errors_total",
+    "Total de respostas HTTP com erro.",
+    ["method", "endpoint", "status_code"],
+)
+http_request_duration_seconds = Histogram(
+    "http_request_duration_seconds",
+    "Duracao das requisicoes HTTP em segundos.",
+    ["method", "endpoint", "status_code"],
+)
+
+
+@app.middleware("http")
+async def collect_red_metrics(request: Request, call_next):
+    started_at = time.perf_counter()
+    status_code = "500"
+    try:
+        response = await call_next(request)
+        status_code = str(response.status_code)
+        return response
+    finally:
+        endpoint = "unmatched"
+        route = request.scope.get("route")
+        if route is not None and getattr(route, "path", None):
+            endpoint = route.path
+
+        labels = {
+            "method": request.method,
+            "endpoint": endpoint,
+            "status_code": status_code,
+        }
+
+        duration_seconds = time.perf_counter() - started_at
+        http_requests_total.labels(**labels).inc()
+        http_request_duration_seconds.labels(**labels).observe(duration_seconds)
+        if int(status_code) >= 400:
+            http_request_errors_total.labels(**labels).inc()
+
 
 @app.get("/health")
 def health_check() -> dict[str, str]:
     return {"status": "healthy", "service": "stream-authorization-api"}
+
+
+@app.get("/metrics")
+def metrics() -> Response:
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 # O provider fornece os fatores externos, mas a API principal decide a
