@@ -74,6 +74,8 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
     volumes:
       - ./grafana-datasource.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
+      - ./grafana-dashboard-provider.yml:/etc/grafana/provisioning/dashboards/red-dashboard.yml:ro
+      - ./grafana-dashboard-red.json:/var/lib/grafana/dashboards/red-dashboard.json:ro
     depends_on:
       prometheus:
         condition: service_started

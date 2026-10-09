@@ -75,7 +75,10 @@ Grafana (disponível localmente):
 - credenciais padrão: `admin` / `admin`
 - sobrescrita opcional com `GRAFANA_ADMIN_USER` e `GRAFANA_ADMIN_PASSWORD`
 - datasource Prometheus provisionado automaticamente com `http://prometheus:9090`
-- sem persistência, dashboards e alertas nesta etapa
+- dashboard provisionado automaticamente: `Stream Authorization - RED`
+- painéis: `Requisições por segundo`, `Erros por segundo`, `Latência p95`, `Requisições por endpoint e status`
+- pode ser necessário gerar tráfego para visualizar dados
+- sem persistência, alertas e dashboards adicionais nesta etapa
 
 Validar saúde e targets do Prometheus:
 
@@ -179,7 +182,7 @@ Resultado atual comprovado:
 - Sem Loki e Tempo.
 - Sem k6.
 
-O `prometheus-client` expõe métricas no formato Prometheus em `/metrics`, o Prometheus Server faz a coleta básica e o Grafana recebe um datasource provisionado automaticamente. Nesta etapa não há persistência, dashboards nem regras de alerta.
+O `prometheus-client` expõe métricas no formato Prometheus em `/metrics`, o Prometheus Server faz a coleta básica e o Grafana recebe datasource e dashboard RED provisionados automaticamente. Nesta etapa não há persistência, alertas nem dashboards adicionais.
 
 ## 12. Próximos passos
 - OpenTelemetry.
