@@ -10,6 +10,8 @@ O provider simulado suporta modos `success`, `slow` e `error`, permitindo valida
 
 A aplicação já publica logs estruturados em JSON com sanitização de dados sensíveis e também expõe métricas RED em `/metrics`. A execução principal em ambiente local de containers ocorre via Docker Compose com healthchecks ativos.
 
+Traces OpenTelemetry também são gerados para a API principal, para o cliente HTTPX e para o mock provider, com propagação entre serviços e `trace_id`/`span_id` reais nos logs JSON.
+
 ## 3. Arquitetura
 ```text
 Cliente
@@ -79,6 +81,11 @@ Grafana (disponível localmente):
 - painéis: `Requisições por segundo`, `Erros por segundo`, `Latência p95`, `Requisições por endpoint e status`
 - pode ser necessário gerar tráfego para visualizar dados
 - sem persistência, alertas e dashboards adicionais nesta etapa
+
+LGTM/OTel:
+
+- serviço `lgtm` no Compose para receber traces OTLP
+- sem plugins, persistência ou stack customizada nesta etapa
 
 Validar saúde e targets do Prometheus:
 
@@ -152,6 +159,7 @@ curl -i http://127.0.0.1:8000/openapi.json
 Logs:
 - JSON estruturado.
 - Eventos de negócio da API e eventos de transporte do provider.
+- `trace_id` e `span_id` reais quando houver span ativo.
 - Campos sensíveis redigidos com `[REDACTED]`.
 - `drm_token` não é registrado nos logs.
 
@@ -178,11 +186,10 @@ Resultado atual comprovado:
 - Sem banco de dados.
 - Sem retry.
 - Sem circuit breaker.
-- Sem OpenTelemetry.
 - Sem Loki e Tempo.
 - Sem k6.
 
-O `prometheus-client` expõe métricas no formato Prometheus em `/metrics`, o Prometheus Server faz a coleta básica e o Grafana recebe datasource e dashboard RED provisionados automaticamente. Nesta etapa não há persistência, alertas nem dashboards adicionais.
+O `prometheus-client` expõe métricas no formato Prometheus em `/metrics`, o Prometheus Server faz a coleta básica, o Grafana recebe datasource e dashboard RED provisionados automaticamente, e os traces são exportados via OTLP para o serviço `lgtm`. Nesta etapa não há persistência, alertas, k6 nem dashboards adicionais.
 
 ## 12. Próximos passos
 - OpenTelemetry.

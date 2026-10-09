@@ -6,13 +6,14 @@ from fastapi import FastAPI, Request, Response
 from fastapi import HTTPException, Query
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
-from app.logging import configure_json_logging
+from app.logging import configure_json_logging, configure_tracing
 from app.provider import ProviderClient
 from app.schemas import StreamingAuthorizationResponse
 
 
 configure_json_logging(service="stream-authorization-api", level=logging.INFO, logger_name="stream-authorization-api")
 app = FastAPI(title="stream-authorization-api")
+configure_tracing(service="stream-authorization-api", app=app)
 
 logger = logging.getLogger("stream-authorization-api")
 provider_client = ProviderClient()

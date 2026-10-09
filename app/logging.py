@@ -10,8 +10,17 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any
+
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 DEFAULT_SERVICE_NAME = "stream-authorization-api"
 DEFAULT_EVENT_NAME = "application_log"
@@ -51,6 +60,9 @@ _RESERVED_LOG_RECORD_FIELDS = {
     "threadName",
     "taskName",
 }
+_TRACE_PROVIDER_CONFIGURED = False
+_HTTPX_INSTRUMENTED = False
+_INSTRUMENTED_APPS: set[int] = set()
 
 
 def _is_sensitive_field(name: Any) -> bool:
@@ -101,11 +113,15 @@ class JsonFormatter(logging.Formatter):
             "event": getattr(record, "event", self.event) or self.event,
             "message": record.getMessage(),
         }
+        span_context = trace.get_current_span().get_span_context()
+        if span_context.is_valid:
+            payload["trace_id"] = f"{span_context.trace_id:032x}"
+            payload["span_id"] = f"{span_context.span_id:016x}"
 
         for key, value in record.__dict__.items():
             if key in _RESERVED_LOG_RECORD_FIELDS or key.startswith("_"):
                 continue
-            if key in {"timestamp", "level", "service", "event", "message"}:
+            if key in {"timestamp", "level", "service", "event", "message", "trace_id", "span_id"}:
                 continue
             if _is_sensitive_field(key):
                 payload[key] = REDACTED_VALUE
@@ -121,6 +137,29 @@ class JsonFormatter(logging.Formatter):
                 payload["exception"] = exc_text
 
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def configure_tracing(*, service: str = DEFAULT_SERVICE_NAME, app: Any | None = None) -> None:
+    """Configura tracing mínimo com instrumentação de FastAPI e HTTPX."""
+    global _TRACE_PROVIDER_CONFIGURED, _HTTPX_INSTRUMENTED
+
+    if not _TRACE_PROVIDER_CONFIGURED:
+        provider = TracerProvider(resource=Resource.create({"service.name": service}))
+        traces_endpoint = os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+        if traces_endpoint:
+            provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=traces_endpoint)))
+        trace.set_tracer_provider(provider)
+        _TRACE_PROVIDER_CONFIGURED = True
+
+    provider = trace.get_tracer_provider()
+
+    if not _HTTPX_INSTRUMENTED:
+        HTTPXClientInstrumentor().instrument(tracer_provider=provider)
+        _HTTPX_INSTRUMENTED = True
+
+    if app is not None and id(app) not in _INSTRUMENTED_APPS:
+        FastAPIInstrumentor.instrument_app(app, tracer_provider=provider)
+        _INSTRUMENTED_APPS.add(id(app))
 
 
 def configure_json_logging(

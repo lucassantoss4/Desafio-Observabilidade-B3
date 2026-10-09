@@ -3,3 +3,7 @@ uvicorn[standard]>=0.30,<1.0 # Servidor ASGI para rodar a aplicação FastAPI
 httpx>=0.24,<1.0 # Cliente HTTP assíncrono para fazer requisições HTTP
 pytest>=8.0,<9.0 # Framework de testes para Python
 prometheus-client>=0.20,<1.0 # Exposição de métricas no formato Prometheus
+opentelemetry-sdk>=1.45,<2.0 # SDK de tracing para spans reais na aplicação
+opentelemetry-exporter-otlp-proto-http>=1.45,<2.0 # Exportação OTLP HTTP para LGTM
+opentelemetry-instrumentation-fastapi>=0.58b0,<1.0 # Instrumentação automática da API FastAPI
+opentelemetry-instrumentation-httpx>=0.58b0,<1.0 # Instrumentação automática do cliente HTTPX

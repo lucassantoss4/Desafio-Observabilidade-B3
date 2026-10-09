@@ -4,6 +4,8 @@ from enum import Enum
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from app.logging import configure_tracing
+
 
 class ValidationMode(str, Enum):
     success = "success"
@@ -21,6 +23,7 @@ class MockValidationResponse(BaseModel):
 
 
 app = FastAPI(title="mock-provider")
+configure_tracing(service="mock-provider", app=app)
 
 
 @app.get("/validate", response_model=MockValidationResponse)
