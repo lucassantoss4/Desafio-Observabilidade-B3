@@ -69,6 +69,14 @@ Prometheus (disponível localmente):
 - coleta métricas da API em `http://api:8000/metrics`
 - sem persistência nesta etapa
 
+Grafana (disponível localmente):
+
+- http://127.0.0.1:3000
+- credenciais padrão: `admin` / `admin`
+- sobrescrita opcional com `GRAFANA_ADMIN_USER` e `GRAFANA_ADMIN_PASSWORD`
+- datasource Prometheus provisionado automaticamente com `http://prometheus:9090`
+- sem persistência, dashboards e alertas nesta etapa
+
 Validar saúde e targets do Prometheus:
 
 ```bash
@@ -80,6 +88,7 @@ Logs da API principal:
 
 ```bash
 docker compose logs api
+docker compose logs grafana
 ```
 
 Encerrar ambiente:
@@ -167,11 +176,10 @@ Resultado atual comprovado:
 - Sem retry.
 - Sem circuit breaker.
 - Sem OpenTelemetry.
-- Sem Grafana.
 - Sem Loki e Tempo.
 - Sem k6.
 
-O `prometheus-client` expõe métricas no formato Prometheus em `/metrics`, e o Prometheus Server foi adicionado ao Compose apenas para coleta básica. Nesta etapa não há persistência, Grafana nem regras de alerta.
+O `prometheus-client` expõe métricas no formato Prometheus em `/metrics`, o Prometheus Server faz a coleta básica e o Grafana recebe um datasource provisionado automaticamente. Nesta etapa não há persistência, dashboards nem regras de alerta.
 
 ## 12. Próximos passos
 - OpenTelemetry.
