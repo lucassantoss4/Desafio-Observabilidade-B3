@@ -63,6 +63,19 @@ docker compose up --build -d
 docker compose ps
 ```
 
+Prometheus (disponível localmente):
+
+- http://127.0.0.1:9090
+- coleta métricas da API em `http://api:8000/metrics`
+- sem persistência nesta etapa
+
+Validar saúde e targets do Prometheus:
+
+```bash
+curl -i http://127.0.0.1:9090/-/healthy
+curl -s http://127.0.0.1:9090/api/v1/targets
+```
+
 Logs da API principal:
 
 ```bash
@@ -154,12 +167,11 @@ Resultado atual comprovado:
 - Sem retry.
 - Sem circuit breaker.
 - Sem OpenTelemetry.
-- Sem Prometheus Server no Compose.
 - Sem Grafana.
 - Sem Loki e Tempo.
 - Sem k6.
 
-O `prometheus-client` expõe métricas no formato Prometheus em `/metrics`, mas o servidor Prometheus ainda não foi adicionado ao Compose.
+O `prometheus-client` expõe métricas no formato Prometheus em `/metrics`, e o Prometheus Server foi adicionado ao Compose apenas para coleta básica. Nesta etapa não há persistência, Grafana nem regras de alerta.
 
 ## 12. Próximos passos
 - OpenTelemetry.
