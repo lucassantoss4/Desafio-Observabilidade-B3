@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.models.provider import ProviderValidationResponse
+from app.schemas import ProviderValidationResponse
 
 
 # TestClient executa a aplicação ASGI em memória e permite validar a API sem

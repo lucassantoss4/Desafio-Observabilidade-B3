@@ -6,7 +6,7 @@ import time
 
 import httpx
 
-from app.models.provider import ProviderValidationResponse
+from app.schemas import ProviderValidationResponse
 
 
 logger = logging.getLogger("stream-authorization-api")

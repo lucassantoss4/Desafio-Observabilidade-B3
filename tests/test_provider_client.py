@@ -4,7 +4,7 @@ import asyncio
 import logging
 from unittest.mock import patch
 
-from app.models.provider import ProviderValidationResponse
+from app.schemas import ProviderValidationResponse
 from app.services.provider_client import ProviderClient
 
 

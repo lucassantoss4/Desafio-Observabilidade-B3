@@ -6,7 +6,7 @@ import time
 import httpx
 from fastapi import APIRouter, HTTPException, Query
 
-from app.models.streaming import StreamingAuthorizationResponse
+from app.schemas import StreamingAuthorizationResponse
 from app.services.provider_client import ProviderClient
 
 
