@@ -7,7 +7,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Query
 
 from app.schemas import StreamingAuthorizationResponse
-from app.services.provider_client import ProviderClient
+from app.provider import ProviderClient
 
 
 logger = logging.getLogger("stream-authorization-api")
